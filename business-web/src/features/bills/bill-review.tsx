@@ -21,6 +21,7 @@ import {
   type ExtractedBill,
   type ExtractedLine,
 } from "@/lib/api";
+import { buildConfirmPayload } from "./confirm-payload";
 import { PageHeader } from "@/components/shared/page-header";
 import { ErrorState, LoadingState } from "@/components/shared/states";
 import { EntitySelect } from "@/components/shared/entity-select";
@@ -161,6 +162,47 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
   const [lineProductIds, setLineProductIds] = React.useState<string[]>([]);
   const [lineProductLabels, setLineProductLabels] = React.useState<string[]>([]);
 
+  // Whether to add what the bill names but the shop does not have yet. Ticked by
+  // default, so the common case - a new supplier, a new item - is one tap, while
+  // still being visible enough to untick when a name was misread.
+  const [createParty, setCreateParty] = React.useState(true);
+  const [createLine, setCreateLine] = React.useState<boolean[]>([]);
+  const shouldCreateLine = (index: number) => createLine[index] ?? true;
+
+  // What the server thinks this bill refers to in the shop's own records.
+  const suggestionsQuery = useQuery({
+    queryKey: ["bills", bill.id, "suggestions"],
+    queryFn: () => billsApi.suggestions(bill.id),
+  });
+
+  // Applied once, and never over a choice somebody has already made.
+  const prefilled = React.useRef(false);
+  React.useEffect(() => {
+    const suggested = suggestionsQuery.data;
+    if (!suggested || prefilled.current) return;
+    prefilled.current = true;
+
+    if (suggested.party) {
+      setPartyId((current) => current || suggested.party!.id);
+      setPartyLabel((current) => current ?? suggested.party!.name);
+    }
+
+    setLineProductIds((current) => {
+      const next = [...current];
+      for (const line of suggested.lines) {
+        if (line.productId && !next[line.index]) next[line.index] = line.productId;
+      }
+      return next;
+    });
+    setLineProductLabels((current) => {
+      const next = [...current];
+      for (const line of suggested.lines) {
+        if (line.productId && !next[line.index]) next[line.index] = line.productName ?? "";
+      }
+      return next;
+    });
+  }, [suggestionsQuery.data]);
+
   const [imageUrl, setImageUrl] = React.useState<string | null>(null);
 
   // The stored file needs the auth header, so it is fetched rather than linked.
@@ -218,27 +260,22 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
 
   const confirmMutation = useMutation({
     mutationFn: () => {
-      // The ordinary document payload — exactly what the typed form sends.
-      const items = data.lines
-        .map((line, index) => ({
-          productId: lineProductIds[index],
-          quantity: line.quantity ?? "0",
-          ...(isPurchase
-            ? { unitCost: line.unitPrice ?? "0" }
-            : { unitPrice: line.unitPrice ?? "0" }),
-        }))
-        .filter((item) => item.productId);
-
-      const document: Record<string, unknown> = {
+      // The ordinary document payload — exactly what the typed form sends —
+      // plus anything the shop has asked to add first.
+      const payload = buildConfirmPayload({
+        data,
+        direction: bill.direction,
+        partyId,
         warehouseId,
-        invoiceDate: data.invoiceDate,
-        items,
-        ...(isPurchase
-          ? { supplierId: partyId, invoiceNumber: data.invoiceNumber }
-          : { customerId: partyId }),
-      };
+        lineProductIds,
+        createLine: data.lines.map((_, index) => shouldCreateLine(index)),
+        createParty,
+      });
 
-      return billsApi.confirm(bill.id, document);
+      return billsApi.confirm(bill.id, payload.document, {
+        newParty: payload.newParty,
+        newProducts: payload.newProducts,
+      });
     },
     onSuccess: () => {
       toast.success(isPurchase ? "Purchase recorded" : "Sale recorded");
@@ -249,13 +286,22 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
 
   // What is still missing before this can be recorded. Shown plainly rather than
   // leaving somebody to guess why the button does nothing.
+  const partyWillBeCreated = !partyId && createParty && Boolean(data.partyName?.trim());
+
   const problems: string[] = [];
-  if (!partyId) problems.push(isPurchase ? "Choose the supplier" : "Choose the customer");
+  if (!partyId && !partyWillBeCreated) {
+    problems.push(isPurchase ? "Choose the supplier" : "Choose the customer");
+  }
   if (!warehouseId) problems.push("Choose a warehouse");
   if (!data.invoiceDate) problems.push("Enter the bill date");
   if (isPurchase && !data.invoiceNumber) problems.push("Enter the supplier's invoice number");
-  const matchedLines = data.lines.filter((_, index) => lineProductIds[index]).length;
-  if (matchedLines === 0) problems.push("Match at least one line to a product");
+  const recordedLines = data.lines.filter(
+    (line, index) =>
+      lineProductIds[index] || (shouldCreateLine(index) && (line.description ?? "").trim()),
+  ).length;
+  if (recordedLines === 0) {
+    problems.push("Match at least one line to a product, or tick one to be added");
+  }
 
   const canConfirm = problems.length === 0;
 
@@ -352,6 +398,26 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
               />
             </Field>
 
+            {!partyId && (data.partyName ?? "").trim() && (
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-dashed p-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                  checked={createParty}
+                  onChange={(event) => setCreateParty(event.target.checked)}
+                />
+                <span className="text-sm">
+                  <span className="font-medium">
+                    Add “{data.partyName}” to your {isPurchase ? "suppliers" : "customers"}
+                  </span>
+                  <span className="mt-0.5 block text-muted-foreground">
+                    Created when you record this bill, with the phone and GSTIN read from it.
+                    Untick to pick one you already have.
+                  </span>
+                </span>
+              </label>
+            )}
+
             <Field label="Godown / store" required>
               <select
                 className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base sm:text-sm"
@@ -424,9 +490,13 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                           <CheckCircle2 className="h-3 w-3" />
                           Matched
                         </Badge>
+                      ) : shouldCreateLine(index) && (line.description ?? "").trim() ? (
+                        <Badge variant="outline" className="text-primary">
+                          Will be added
+                        </Badge>
                       ) : (
                         <Badge variant="outline" className="text-muted-foreground">
-                          Not matched
+                          Not recorded
                         </Badge>
                       )}
                       <Button
@@ -460,6 +530,29 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                         }}
                         placeholder="Choose a product"
                       />
+
+                      {!lineProductIds[index] && (line.description ?? "").trim() && (
+                        <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary"
+                            checked={shouldCreateLine(index)}
+                            onChange={(event) =>
+                              setCreateLine((current) => {
+                                const next = [...current];
+                                for (let i = 0; i < data.lines.length; i += 1) {
+                                  next[i] = next[i] ?? true;
+                                }
+                                next[index] = event.target.checked;
+                                return next;
+                              })
+                            }
+                          />
+                          <span className="text-muted-foreground">
+                            Add “{line.description}” to your products
+                          </span>
+                        </label>
+                      )}
                     </Field>
 
                     <div className="grid grid-cols-2 gap-3">

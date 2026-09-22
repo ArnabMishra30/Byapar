@@ -1,0 +1,256 @@
+import { describe, it, expect, beforeAll } from 'vitest';
+import request from 'supertest';
+import { app } from '../../src/app.js';
+import { prisma, resetDatabase, createCompanyWithUsers, login } from '../helpers/db.js';
+
+// MATCHING A BILL TO THE SHOP'S OWN RECORDS, and adding what is missing.
+//
+// Two jobs, both covered here:
+//
+//   SUGGESTIONS  a read-only opinion about which supplier and which products a
+//                bill refers to. It must be confident or silent - a wrong
+//                supplier books a purchase into the wrong ledger, and a wrong
+//                product moves the wrong stock.
+//
+//   CREATION     confirming a bill may add the supplier and products it names,
+//                through the ordinary services, before posting through the
+//                ordinary purchase flow.
+//
+// And the rule that outranks both: one shop can never see or touch another's.
+
+const auth = (token) => ({ Authorization: `Bearer ${token}` });
+const PASSWORD = 'test-password-123';
+
+let companyA;
+let tokenA;
+let tokenB;
+let ctxA;
+
+/** The master data a shop already has before any bill arrives. */
+async function prepareCompany(token, suffix) {
+  const category = await request(app)
+    .post('/api/v1/categories')
+    .set(auth(token))
+    .send({ name: `Grocery ${suffix}` });
+
+  const unit = await request(app)
+    .post('/api/v1/units')
+    .set(auth(token))
+    .send({ name: `Kilogram ${suffix}`, shortCode: `KG${suffix}` });
+
+  const product = await request(app)
+    .post('/api/v1/products')
+    .set(auth(token))
+    .send({
+      name: 'Basmati Rice 5kg',
+      categoryId: category.body.data.category.id,
+      unitId: unit.body.data.unit.id,
+      sku: `RICE-${suffix}`,
+    });
+
+  const supplier = await request(app)
+    .post('/api/v1/suppliers')
+    .set(auth(token))
+    .send({
+      name: 'Sharma General Store',
+      gstin: '19ABCDE1234F1Z5',
+      phone: '9876543210',
+    });
+
+  const warehouse = await request(app)
+    .post('/api/v1/warehouses')
+    .set(auth(token))
+    .send({ name: `Main ${suffix}`, code: `MN${suffix}` });
+
+  return {
+    categoryId: category.body.data.category.id,
+    unitId: unit.body.data.unit.id,
+    productId: product.body.data.product.id,
+    supplierId: supplier.body.data.supplier.id,
+    warehouseId: warehouse.body.data.warehouse.id,
+  };
+}
+
+/** A bill already read and waiting for review, without needing a vendor key. */
+function createReviewBill(companyId, uploadedById, reviewedData, direction = 'IN') {
+  return prisma.bill.create({
+    data: {
+      companyId,
+      direction,
+      status: 'REVIEW',
+      originalFilename: 'bill.pdf',
+      mimeType: 'application/pdf',
+      fileSize: 1024,
+      storageKey: `${companyId}/2026-09/${Math.random().toString(36).slice(2)}.pdf`,
+      reviewedData,
+      uploadedById,
+    },
+    select: { id: true },
+  });
+}
+
+beforeAll(async () => {
+  await resetDatabase();
+
+  companyA = await createCompanyWithUsers('matcha');
+  const companyB = await createCompanyWithUsers('matchb');
+
+  tokenA = await login(app, companyA.admin.email, PASSWORD);
+  tokenB = await login(app, companyB.admin.email, PASSWORD);
+
+  ctxA = await prepareCompany(tokenA, 'A');
+});
+
+describe('GET /api/v1/bills/:id/suggestions', () => {
+  it('finds the supplier and the product a bill names', async () => {
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Sharma General Store',
+      lines: [{ description: 'Basmati Rice 5kg', quantity: '2', unitPrice: '420.00' }],
+    });
+
+    const response = await request(app)
+      .get(`/api/v1/bills/${bill.id}/suggestions`)
+      .set(auth(tokenA));
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.party).toMatchObject({ id: ctxA.supplierId, matchedBy: 'name' });
+    expect(response.body.data.lines[0]).toMatchObject({
+      index: 0,
+      productId: ctxA.productId,
+      matchedBy: 'name',
+    });
+  });
+
+  it('matches a supplier by GSTIN even when the printed name differs', async () => {
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'SHARMA GEN. STORES (UNIT 2)',
+      partyGstin: '19ABCDE1234F1Z5',
+      lines: [],
+    });
+
+    const response = await request(app)
+      .get(`/api/v1/bills/${bill.id}/suggestions`)
+      .set(auth(tokenA));
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.party).toMatchObject({ id: ctxA.supplierId, matchedBy: 'gstin' });
+  });
+
+  it('stays silent about a line it does not recognise rather than guessing', async () => {
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Someone Not In The Records',
+      lines: [{ description: 'Imported Olive Oil 2L', quantity: '1' }],
+    });
+
+    const response = await request(app)
+      .get(`/api/v1/bills/${bill.id}/suggestions`)
+      .set(auth(tokenA));
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.party).toBeNull();
+    expect(response.body.data.lines[0].productId).toBeNull();
+  });
+
+  it('never matches against another shop, and hides the bill entirely', async () => {
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Sharma General Store',
+      lines: [{ description: 'Basmati Rice 5kg' }],
+    });
+
+    const response = await request(app)
+      .get(`/api/v1/bills/${bill.id}/suggestions`)
+      .set(auth(tokenB));
+
+    expect(response.status).toBe(404);
+  });
+});
+
+describe('POST /api/v1/bills/:id/confirm with records that do not exist yet', () => {
+  it('creates the supplier and product the bill names, then posts the purchase', async () => {
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Verma Wholesale',
+      lines: [{ description: 'Mustard Oil 1L', quantity: '3', unitPrice: '165.00' }],
+    });
+
+    const response = await request(app)
+      .post(`/api/v1/bills/${bill.id}/confirm`)
+      .set(auth(tokenA))
+      .send({
+        document: {
+          warehouseId: ctxA.warehouseId,
+          invoiceNumber: 'INV-NEW-1',
+          invoiceDate: '2026-06-15',
+          // No supplierId and no productId: both are about to be created.
+          items: [{ quantity: '3', unitCost: '165' }],
+        },
+        newParty: { name: 'Verma Wholesale', phone: '9812345678' },
+        newProducts: [{ index: 0, name: 'Mustard Oil 1L', unit: 'L', price: '165' }],
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.bill.status).toBe('POSTED');
+
+    const supplier = await prisma.supplier.findFirst({
+      where: { companyId: companyA.company.id, name: 'Verma Wholesale' },
+    });
+    expect(supplier).not.toBeNull();
+    expect(supplier.phone).toBe('9812345678');
+
+    const product = await prisma.product.findFirst({
+      where: { companyId: companyA.company.id, name: 'Mustard Oil 1L' },
+    });
+    expect(product).not.toBeNull();
+    // A product needs a category and a unit; a bill line has neither, so the
+    // service fills them in rather than refusing.
+    expect(product.categoryId).toBeTruthy();
+    expect(product.unitId).toBeTruthy();
+
+    // The purchase is a real one, posted through the ordinary flow.
+    const purchase = await prisma.purchase.findUnique({
+      where: { id: response.body.data.bill.posted.sourceId },
+      include: { items: true },
+    });
+    expect(purchase.status).toBe('POSTED');
+    expect(purchase.supplierId).toBe(supplier.id);
+    expect(purchase.items[0].productId).toBe(product.id);
+
+    // And the second bill from the same supplier now matches it, with nothing
+    // new to create.
+    const second = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Verma Wholesale',
+      lines: [{ description: 'Mustard Oil 1L' }],
+    });
+
+    const suggestions = await request(app)
+      .get(`/api/v1/bills/${second.id}/suggestions`)
+      .set(auth(tokenA));
+
+    expect(suggestions.body.data.party.id).toBe(supplier.id);
+    expect(suggestions.body.data.lines[0].productId).toBe(product.id);
+  });
+
+  it('refuses a document that is still incomplete, and creates nothing', async () => {
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Ghost Traders',
+      lines: [{ description: 'Nothing' }],
+    });
+
+    const response = await request(app)
+      .post(`/api/v1/bills/${bill.id}/confirm`)
+      .set(auth(tokenA))
+      .send({
+        document: {
+          warehouseId: ctxA.warehouseId,
+          invoiceNumber: 'INV-BAD-1',
+          invoiceDate: '2026-06-15',
+          items: [], // no lines at all
+        },
+        newParty: { name: 'Ghost Traders' },
+      });
+
+    expect(response.status).toBe(400);
+
+    const stillUnposted = await prisma.bill.findUnique({ where: { id: bill.id } });
+    expect(stillUnposted.status).not.toBe('POSTED');
+  });
+});

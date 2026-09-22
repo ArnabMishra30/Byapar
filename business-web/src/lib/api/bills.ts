@@ -39,6 +39,43 @@ export interface ExtractedBill {
   notes: string | null;
 }
 
+/** A supplier or customer the server believes this bill is with. */
+export interface PartySuggestion {
+  id: string;
+  name: string;
+  /** gstin | phone | name | similar-name - what the match was based on. */
+  matchedBy: string;
+}
+
+/** The product a bill line appears to be, where there is a confident answer. */
+export interface LineSuggestion {
+  index: number;
+  productId: string | null;
+  productName?: string;
+  matchedBy?: string;
+}
+
+export interface BillSuggestions {
+  party: PartySuggestion | null;
+  lines: LineSuggestion[];
+}
+
+/** Only what a bill can show. The rest of a party is set on its own screen. */
+export interface NewPartyInput {
+  name: string;
+  phone?: string;
+  gstin?: string;
+  address?: string;
+}
+
+export interface NewProductInput {
+  /** The position in document.items this product belongs to. */
+  index: number;
+  name: string;
+  unit?: string | null;
+  price?: string | null;
+}
+
 export interface Bill {
   id: string;
   direction: BillDirection;
@@ -125,11 +162,29 @@ export const billsApi = {
   confirm: async (
     id: string,
     document: Record<string, unknown>,
-    postImmediately = true
+    extras: {
+      /** A supplier or customer the bill names that the shop does not have yet. */
+      newParty?: NewPartyInput | null;
+      /** Products a bill line names that the shop does not stock yet. */
+      newProducts?: NewProductInput[];
+      postImmediately?: boolean;
+    } = {}
   ): Promise<{ bill: Bill; document: Record<string, unknown> }> => {
+    const { newParty = null, newProducts = [], postImmediately = true } = extras;
     const res = await apiClient.post<{
       data: { bill: Bill; document: Record<string, unknown> };
-    }>(`/bills/${id}/confirm`, { document, postImmediately });
+    }>(`/bills/${id}/confirm`, { document, postImmediately, newParty, newProducts });
+    return res.data.data;
+  },
+
+  /**
+   * What this bill looks like it refers to in the shop's own records.
+   *
+   * Advisory only: the server offers a supplier, and a product per line, when
+   * it is confident, and says nothing when it is not. The reviewer decides.
+   */
+  suggestions: async (id: string): Promise<BillSuggestions> => {
+    const res = await apiClient.get<{ data: BillSuggestions }>(`/bills/${id}/suggestions`);
     return res.data.data;
   },
 

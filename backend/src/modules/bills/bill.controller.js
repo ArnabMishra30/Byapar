@@ -61,6 +61,11 @@ export async function saveReview(req, res) {
   return sendSuccess(res, { bill }, 200, 'Changes saved');
 }
 
+export async function suggestions(req, res) {
+  const matches = await billService.suggestions(req.user, req.validated.params.id);
+  return sendSuccess(res, matches);
+}
+
 export async function confirm(req, res) {
   const result = await billService.confirm(req.user, req.validated.params.id, req.body);
   return sendSuccess(res, result, 201, 'Bill recorded successfully');

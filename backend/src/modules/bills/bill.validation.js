@@ -53,8 +53,34 @@ export const DOCUMENT_SCHEMA_BY_DIRECTION = {
  * Validating a union here instead would report "expected a customerId" on a
  * supplier bill, which is a worse error than no error.
  */
+/**
+ * A supplier or customer the bill names that the shop does not have yet.
+ *
+ * Only what a bill can actually show. Everything else about a party - credit
+ * limit, payment terms, opening balance - is set later, deliberately, on the
+ * party's own screen.
+ */
+const newPartySchema = z.object({
+  name: z.string().trim().min(1, 'Name is required').max(200),
+  phone: z.string().trim().max(30).optional(),
+  gstin: z.string().trim().max(20).optional(),
+  address: z.string().trim().max(500).optional(),
+});
+
+/** A product a bill line names that the shop does not stock yet. */
+const newProductSchema = z.object({
+  /** Which entry of document.items this product belongs to. */
+  index: z.number().int().min(0).max(499),
+  name: z.string().trim().min(1, 'Product name is required').max(200),
+  unit: z.string().trim().max(30).nullable().optional(),
+  price: z.string().trim().max(30).nullable().optional(),
+});
+
 export const confirmBillSchema = z.object({
   document: z.record(z.unknown()),
+  /** Created before posting, through the ordinary services, only if sent. */
+  newParty: newPartySchema.nullable().optional(),
+  newProducts: z.array(newProductSchema).max(500).optional().default([]),
   /**
    * Whether to post immediately or leave a draft. Defaults to posting: a shop
    * confirming a bill has already reviewed it, and leaving silent drafts behind

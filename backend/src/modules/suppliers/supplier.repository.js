@@ -31,6 +31,16 @@ export function findByNameAndCompany(name, companyId) {
   });
 }
 
+/** Just enough of every supplier to match a bill's party against. One query. */
+export function findAllForMatching(companyId) {
+  return prisma.supplier.findMany({
+    where: { companyId, isActive: true },
+    select: { id: true, name: true, gstin: true, phone: true },
+    orderBy: { name: 'asc' },
+    take: 2000,
+  });
+}
+
 export async function findManyByCompany(companyId, { skip, take, search, isActive }) {
   const where = { companyId };
 

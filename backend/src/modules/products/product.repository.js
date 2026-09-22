@@ -53,6 +53,22 @@ export function findByBarcodeAndCompany(barcode, companyId) {
 }
 
 /**
+ * Just enough of every product to match a bill line against, and nothing else.
+ *
+ * ONE QUERY, NOT ONE PER LINE. A bill has a dozen lines and a catalogue has
+ * hundreds of products; comparing names is work for memory, not for a loop of
+ * round trips to PostgreSQL.
+ */
+export function findAllForMatching(companyId) {
+  return prisma.product.findMany({
+    where: { companyId, isActive: true },
+    select: { id: true, name: true, sku: true, barcode: true },
+    orderBy: { name: 'asc' },
+    take: 2000,
+  });
+}
+
+/**
  * @param {{ skip: number, take: number, search?: string, categoryId?: string,
  *           unitId?: string, taxId?: string, isActive?: boolean }} options
  */

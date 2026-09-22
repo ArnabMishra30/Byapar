@@ -96,6 +96,10 @@ billRoutes.get('/:id', validate({ params: idParamSchema }), billController.get);
 
 billRoutes.get('/:id/file', validate({ params: idParamSchema }), billController.file);
 
+// What this bill looks like it refers to in the shop's own records. Read-only,
+// and scoped to the caller's company like every other route here.
+billRoutes.get('/:id/suggestions', validate({ params: idParamSchema }), billController.suggestions);
+
 billRoutes.post('/:id/retry', validate({ params: idParamSchema }), billController.retry);
 
 billRoutes.patch(

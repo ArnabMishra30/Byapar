@@ -5,6 +5,8 @@ import * as billRepository from './bill.repository.js';
 import * as billStorage from './bill-storage.service.js';
 import { extractBill, isExtractionConfigured } from './bill-extraction.service.js';
 import { DOCUMENT_SCHEMA_BY_DIRECTION } from './bill.validation.js';
+import { suggestMatches } from './bill-matching.service.js';
+import { createPartyFromBill, createProductsFromBill } from './bill-masters.service.js';
 import * as purchaseService from '../purchases/purchase.service.js';
 import * as salesService from '../sales/sales.service.js';
 
@@ -220,7 +222,27 @@ export async function saveReview(currentUser, id, reviewedData) {
  * totals and the document number; post() does the stock, the sub-ledger and the
  * journal. This function's only job is to call them and remember the result.
  */
-export async function confirm(currentUser, id, { document, postImmediately = true }) {
+/**
+ * What this bill looks like it refers to in the shop's own records.
+ *
+ * Read-only and advisory: it pre-fills the review screen so a regular supplier
+ * and familiar products need no dropdown work, and stays silent when it is not
+ * sure. Nothing here decides anything - the person reviewing does.
+ */
+export async function suggestions(currentUser, id) {
+  const { companyId } = currentUser;
+
+  const bill = await billRepository.findByIdAndCompany(id, companyId);
+  if (!bill) throw ApiError.business(404, 'BILL_NOT_FOUND', 'Bill not found');
+
+  return suggestMatches(companyId, bill.direction, bill.reviewedData ?? {});
+}
+
+export async function confirm(
+  currentUser,
+  id,
+  { document, postImmediately = true, newParty = null, newProducts = [] },
+) {
   const { companyId } = currentUser;
 
   const bill = await billRepository.findByIdAndCompany(id, companyId);
@@ -244,8 +266,29 @@ export async function confirm(currentUser, id, { document, postImmediately = tru
   // THE SAME SCHEMA THE ORDINARY FORM USES, chosen by the bill's own direction.
   // A bill that arrived as a photograph gets nothing past validation that a
   // typed one could not.
+  // ADDING WHAT THE SHOP DOES NOT HAVE YET, before anything is validated.
+  //
+  // Each one goes through the ordinary supplier/customer/product service, so a
+  // record created from a bill is indistinguishable from a typed one - same
+  // validation, same duplicate checks. The ids then fill the gaps in the
+  // document, which still faces the full schema below.
+  const documentToPost = { ...document };
+
+  if (newParty) {
+    const partyId = await createPartyFromBill(currentUser, bill.direction, newParty);
+    if (isPurchase) documentToPost.supplierId = partyId;
+    else documentToPost.customerId = partyId;
+  }
+
+  if (newProducts.length > 0) {
+    const createdProductIds = await createProductsFromBill(currentUser, newProducts);
+    documentToPost.items = (documentToPost.items ?? []).map((item, index) =>
+      createdProductIds.has(index) ? { ...item, productId: createdProductIds.get(index) } : item,
+    );
+  }
+
   const schema = DOCUMENT_SCHEMA_BY_DIRECTION[bill.direction];
-  const parsed = schema.safeParse(document);
+  const parsed = schema.safeParse(documentToPost);
 
   if (!parsed.success) {
     throw ApiError.badRequest(
@@ -270,7 +313,7 @@ export async function confirm(currentUser, id, { document, postImmediately = tru
       // draft went so the shop can finish it, and let the real reason surface.
       await billRepository.update(bill.id, {
         status: 'REVIEW',
-        reviewedData: document,
+        reviewedData: documentToPost,
         extractionError: null,
       });
 
