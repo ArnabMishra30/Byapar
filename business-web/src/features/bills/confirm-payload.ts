@@ -28,11 +28,18 @@ export interface NewWarehouse {
   name: string;
 }
 
+/** Money that changed hands as the bill was recorded. */
+export interface BillPayment {
+  amount: string;
+  method: "CASH" | "BANK_TRANSFER" | "UPI" | "CHEQUE" | "OTHER";
+}
+
 export interface ConfirmPayload {
   document: Record<string, unknown>;
   newParty: NewParty | null;
   newProducts: NewProduct[];
   newWarehouse: NewWarehouse | null;
+  payment: BillPayment | null;
 }
 
 /** A GSTIN is 15 characters. Anything else read off a bill is noise, not a GSTIN. */
@@ -71,6 +78,13 @@ export interface BuildArgs {
    * with one possible answer.
    */
   newWarehouse?: NewWarehouse | null;
+  /**
+   * What the shop says was paid on the spot.
+   *
+   * Sent only when it is a real amount: a bill entirely on credit sends nothing,
+   * and neither does a blank or zero box, so no empty receipt is ever recorded.
+   */
+  payment?: { amount: string; method: BillPayment["method"] } | null;
 }
 
 /**
@@ -88,6 +102,7 @@ export function buildConfirmPayload({
   createLine,
   createParty,
   newWarehouse = null,
+  payment = null,
 }: BuildArgs): ConfirmPayload {
   const isPurchase = direction === "IN";
 
@@ -139,10 +154,16 @@ export function buildConfirmPayload({
       : { ...(partyId ? { customerId: partyId } : {}) }),
   };
 
+  const paidAmount = Number((payment?.amount ?? "").replace(/[^\d.-]/g, ""));
+
   return {
     document,
     newParty,
     newProducts,
     newWarehouse: warehouseId ? null : newWarehouse,
+    payment:
+      payment && Number.isFinite(paidAmount) && paidAmount > 0
+        ? { amount: payment.amount.trim(), method: payment.method }
+        : null,
   };
 }

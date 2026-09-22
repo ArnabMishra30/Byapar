@@ -82,6 +82,23 @@ const newWarehouseSchema = z.object({
   code: z.string().trim().max(20).optional(),
 });
 
+/**
+ * Money that changed hands as the bill was recorded.
+ *
+ * Optional: a bill entirely on credit has none. The amount is a string all the
+ * way through, like every other money value here, so it reaches Decimal without
+ * passing through a float.
+ */
+const billPaymentSchema = z.object({
+  amount: z.string().trim().min(1, 'Amount is required'),
+  method: z.enum(['CASH', 'BANK_TRANSFER', 'UPI', 'CHEQUE', 'OTHER']).optional().default('CASH'),
+  date: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format')
+    .optional(),
+});
+
 export const confirmBillSchema = z.object({
   document: z.record(z.unknown()),
   /** Created before posting, through the ordinary services, only if sent. */
@@ -89,6 +106,8 @@ export const confirmBillSchema = z.object({
   newProducts: z.array(newProductSchema).max(500).optional().default([]),
   /** Created only when the document names no store and the shop asked for one. */
   newWarehouse: newWarehouseSchema.nullable().optional(),
+  /** What was paid when the bill was recorded, if anything. */
+  payment: billPaymentSchema.nullable().optional(),
   /**
    * Whether to post immediately or leave a draft. Defaults to posting: a shop
    * confirming a bill has already reviewed it, and leaving silent drafts behind

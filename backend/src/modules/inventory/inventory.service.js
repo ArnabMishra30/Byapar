@@ -43,6 +43,8 @@ export function toPublicBalance(balance) {
       id: balance.product.id,
       name: balance.product.name,
       sku: balance.product.sku,
+      // So a list can mark what is running low without asking again per row.
+      reorderLevel: balance.product.reorderLevel ?? null,
     },
     warehouse: {
       id: balance.warehouse.id,

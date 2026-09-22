@@ -11,6 +11,7 @@ import {
   createProductsFromBill,
   resolveWarehouseId,
 } from './bill-masters.service.js';
+import { recordBillPayment } from './bill-payment.service.js';
 import * as purchaseService from '../purchases/purchase.service.js';
 import * as salesService from '../sales/sales.service.js';
 
@@ -274,7 +275,14 @@ export async function suggestions(currentUser, id) {
 export async function confirm(
   currentUser,
   id,
-  { document, postImmediately = true, newParty = null, newProducts = [], newWarehouse = null },
+  {
+    document,
+    postImmediately = true,
+    newParty = null,
+    newProducts = [],
+    newWarehouse = null,
+    payment = null,
+  },
 ) {
   const { companyId } = currentUser;
 
@@ -374,6 +382,31 @@ export async function confirm(
     }
   }
 
+  // WHAT WAS PAID ON THE SPOT, if the bill says any was.
+  //
+  // Deliberately AFTER posting and outside its failure path: the document is in
+  // the books and correct, and a payment that cannot be recorded must not undo
+  // it or pretend it did not happen. The shop is told instead, and can add the
+  // receipt from Money Received - one missing payment, not a lost bill.
+  let recordedPayment = null;
+  let paymentError = null;
+
+  if (postImmediately && payment?.amount) {
+    try {
+      recordedPayment = await recordBillPayment(currentUser, {
+        direction: bill.direction,
+        documentId: draft.id,
+        partyId: isPurchase ? parsed.data.supplierId : parsed.data.customerId,
+        amount: payment.amount,
+        method: payment.method,
+        paymentDate: payment.date ?? documentToPost.invoiceDate,
+      });
+    } catch (error) {
+      paymentError = error.message ?? 'The payment could not be recorded.';
+      logger.warn({ billId: bill.id, err: paymentError }, 'Bill payment could not be recorded');
+    }
+  }
+
   const updated = await billRepository.update(bill.id, {
     status: 'POSTED',
     reviewedData: document,
@@ -383,7 +416,14 @@ export async function confirm(
     postedById: currentUser.id,
   });
 
-  return { bill: toPublicBill(updated), document: posted };
+  return {
+    bill: toPublicBill(updated),
+    document: posted,
+    /** The receipt or payment recorded alongside, when the bill showed one. */
+    payment: recordedPayment,
+    /** Said plainly when the bill posted but its payment did not. */
+    paymentError,
+  };
 }
 
 /** Abandons a bill. The file and the extraction stay, for audit. */

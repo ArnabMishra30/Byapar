@@ -13,7 +13,9 @@ const BALANCE_FIELDS = {
   companyId: true,
   createdAt: true,
   updatedAt: true,
-  product: { select: { id: true, name: true, sku: true, isActive: true } },
+  // reorderLevel travels with the balance so a list can show what is running
+  // low without a second query per row.
+  product: { select: { id: true, name: true, sku: true, isActive: true, reorderLevel: true } },
   warehouse: { select: { id: true, name: true, code: true, isActive: true } },
 };
 

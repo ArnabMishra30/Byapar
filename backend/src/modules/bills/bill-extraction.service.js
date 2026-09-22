@@ -76,6 +76,10 @@ export const extractionSchema = z.object({
   totalDiscount: moneyLike,
   grandTotal: moneyLike,
 
+  /** Paid on the spot, and what is left owing. A paper bill usually says both. */
+  amountPaid: moneyLike,
+  balanceDue: moneyLike,
+
   lines: z.array(lineSchema).max(200).optional().default([]),
 
   /** The model's own view of how legible the bill was. Advisory only. */
@@ -92,6 +96,7 @@ const SYSTEM_PROMPT = [
   '- Money and quantities: digits only, a dot for decimals, no currency symbol, no thousands separators.',
   '- Dates: YYYY-MM-DD. An Indian bill showing 03/04/2025 means 3 April 2025.',
   '- Return every line item you can read, in the order printed.',
+  '- amountPaid is what was paid on the spot (Paid, Cash, Received); balanceDue is what is still owing.',
   '- confidence: HIGH if the bill is crisp and complete, MEDIUM if parts are unclear, LOW if you are mostly guessing.',
 ].join('\n');
 
@@ -117,6 +122,8 @@ const EXTRACTION_JSON_SCHEMA = {
     totalTax: money('Total tax charged'),
     totalDiscount: money('Total discount given'),
     grandTotal: money('The final amount payable'),
+    amountPaid: money('Amount already paid, shown as Paid, Cash paid or Received'),
+    balanceDue: money('Amount still owing, shown as Balance, Due or Credit'),
     confidence: {
       type: 'string',
       description: 'HIGH if the bill is crisp and complete, MEDIUM if parts are unclear, LOW if mostly guessing',

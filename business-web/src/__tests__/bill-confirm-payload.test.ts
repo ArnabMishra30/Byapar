@@ -25,6 +25,8 @@ function bill(overrides: Partial<ExtractedBill> = {}): ExtractedBill {
     totalTax: null,
     totalDiscount: null,
     grandTotal: null,
+    amountPaid: null,
+    balanceDue: null,
     lines: [],
     confidence: null,
     notes: null,

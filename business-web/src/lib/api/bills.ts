@@ -34,6 +34,9 @@ export interface ExtractedBill {
   totalTax: string | null;
   totalDiscount: string | null;
   grandTotal: string | null;
+  /** What the bill says was paid on the spot, and what is left owing. */
+  amountPaid: string | null;
+  balanceDue: string | null;
   lines: ExtractedLine[];
   confidence: "HIGH" | "MEDIUM" | "LOW" | null;
   notes: string | null;
@@ -69,6 +72,13 @@ export interface NewPartyInput {
 }
 
 /** A store to create for a shop that has none yet. */
+/** Money that changed hands as the bill was recorded. */
+export interface BillPaymentInput {
+  amount: string;
+  method?: "CASH" | "BANK_TRANSFER" | "UPI" | "CHEQUE" | "OTHER";
+  date?: string;
+}
+
 export interface NewWarehouseInput {
   name?: string;
   code?: string;
@@ -177,13 +187,31 @@ export const billsApi = {
       newProducts?: NewProductInput[];
       /** A store to create when the document names none and the shop has none. */
       newWarehouse?: NewWarehouseInput | null;
+      /** Recorded as a receipt or payment once the document posts. */
+      payment?: BillPaymentInput | null;
       postImmediately?: boolean;
     } = {}
-  ): Promise<{ bill: Bill; document: Record<string, unknown> }> => {
-    const { newParty = null, newProducts = [], newWarehouse = null, postImmediately = true } = extras;
+  ): Promise<{
+    bill: Bill;
+    document: Record<string, unknown>;
+    payment: unknown | null;
+    paymentError: string | null;
+  }> => {
+    const {
+      newParty = null,
+      newProducts = [],
+      newWarehouse = null,
+      payment = null,
+      postImmediately = true,
+    } = extras;
     const res = await apiClient.post<{
-      data: { bill: Bill; document: Record<string, unknown> };
-    }>(`/bills/${id}/confirm`, { document, postImmediately, newParty, newProducts, newWarehouse });
+      data: {
+        bill: Bill;
+        document: Record<string, unknown>;
+        payment: unknown | null;
+        paymentError: string | null;
+      };
+    }>(`/bills/${id}/confirm`, { document, postImmediately, newParty, newProducts, newWarehouse, payment });
     return res.data.data;
   },
 

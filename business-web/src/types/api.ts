@@ -401,7 +401,7 @@ export interface SupplierPayment extends Omit<CustomerPayment, "customer"> {
 
 export interface StockBalance {
   id: string;
-  product: { id: string; name: string; sku: string };
+  product: { id: string; name: string; sku: string; reorderLevel?: string | null };
   warehouse: { id: string; name: string; code: string };
   quantity: string;
   averageCost: string;

@@ -419,6 +419,70 @@ describe('POST /api/v1/bills/:id/confirm with records that do not exist yet', ()
     expect(purchase.status).toBe('POSTED');
   });
 
+  it('records what the bill says was paid, and leaves the rest owing', async () => {
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Sharma General Store',
+      lines: [{ description: 'Basmati Rice 5kg', quantity: '2', unitPrice: '420' }],
+      grandTotal: '840',
+      amountPaid: '500',
+    });
+
+    const response = await request(app)
+      .post(`/api/v1/bills/${bill.id}/confirm`)
+      .set(auth(tokenA))
+      .send({
+        document: {
+          warehouseId: ctxA.warehouseId,
+          supplierId: ctxA.supplierId,
+          invoiceNumber: 'INV-PART-PAID-1',
+          invoiceDate: '2026-06-15',
+          items: [{ productId: ctxA.productId, quantity: '2', unitCost: '420' }],
+        },
+        payment: { amount: '500', method: 'CASH' },
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.paymentError).toBeNull();
+
+    const payable = await prisma.supplierPayable.findFirst({
+      where: { companyId: companyA.company.id, purchaseId: response.body.data.bill.posted.sourceId },
+    });
+
+    expect(Number(payable.paidAmount)).toBe(500);
+    expect(Number(payable.outstandingAmount)).toBe(340);
+  });
+
+  it('settles a bill paid in full, leaving nothing outstanding', async () => {
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Sharma General Store',
+      lines: [{ description: 'Basmati Rice 5kg', quantity: '1', unitPrice: '420' }],
+      amountPaid: '420',
+    });
+
+    const response = await request(app)
+      .post(`/api/v1/bills/${bill.id}/confirm`)
+      .set(auth(tokenA))
+      .send({
+        document: {
+          warehouseId: ctxA.warehouseId,
+          supplierId: ctxA.supplierId,
+          invoiceNumber: 'INV-FULL-PAID-1',
+          invoiceDate: '2026-06-15',
+          items: [{ productId: ctxA.productId, quantity: '1', unitCost: '420' }],
+        },
+        payment: { amount: '420', method: 'CASH' },
+      });
+
+    expect(response.status).toBe(201);
+
+    const payable = await prisma.supplierPayable.findFirst({
+      where: { companyId: companyA.company.id, purchaseId: response.body.data.bill.posted.sourceId },
+    });
+
+    expect(Number(payable.outstandingAmount)).toBe(0);
+    expect(payable.status).toBe('PAID');
+  });
+
   // Last, because it gives company A a second store and so changes the answer
   // to "which store?" for everything after it.
   it('asks which store once a shop has more than one', async () => {

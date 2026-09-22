@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { StatCard } from "@/components/shared/stat-card";
 import { DataTable, useListState, type Column } from "@/components/shared/data-table";
 import { Money } from "@/components/shared/money";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatAmount, formatDateTime } from "@/lib/utils";
 import type { StockBalance, StockMovement } from "@/types/api";
@@ -26,6 +27,25 @@ const MOVEMENT_LABEL: Record<string, string> = {
   ADJUSTMENT_IN: "Correction (added)",
   ADJUSTMENT_OUT: "Correction (removed)",
 };
+
+/**
+ * How a shopkeeper reads a row at a glance.
+ *
+ * Out of stock is red because it is a problem now - a customer asking for it
+ * goes away empty-handed. Low is amber: worth ordering, not urgent. Anything
+ * with no reorder level set can only be one or the other, never low.
+ */
+function stockLevel(row: StockBalance): "out" | "low" | "ok" {
+  const quantity = Number(row.quantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) return "out";
+
+  const reorderLevel = Number(row.product.reorderLevel ?? 0);
+  if (Number.isFinite(reorderLevel) && reorderLevel > 0 && quantity <= reorderLevel) {
+    return "low";
+  }
+
+  return "ok";
+}
 
 export function StockPage() {
   const list = useListState({ limit: 20 });
@@ -60,7 +80,30 @@ export function StockPage() {
       ),
     },
     { header: "Godown", cell: (row) => row.warehouse.name, hideOnMobile: true },
-    { header: "Qty", numeric: true, cell: (row) => formatAmount(row.quantity) },
+    {
+      header: "Qty",
+      numeric: true,
+      cell: (row) => {
+        const level = stockLevel(row);
+        return (
+          <span className="inline-flex items-center justify-end gap-2">
+            <span
+              className={
+                level === "out"
+                  ? "font-semibold text-destructive"
+                  : level === "low"
+                    ? "font-semibold text-amber-600"
+                    : undefined
+              }
+            >
+              {formatAmount(row.quantity)}
+            </span>
+            {level === "out" && <Badge variant="destructive">Out</Badge>}
+            {level === "low" && <Badge variant="warning">Low</Badge>}
+          </span>
+        );
+      },
+    },
     {
       header: "Cost each",
       numeric: true,
@@ -140,7 +183,11 @@ export function StockPage() {
             mobileCard={(row) => (
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{row.product?.name ?? "—"}</p>
+              <p className="flex items-center gap-2 text-sm font-medium">
+                <span className="truncate">{row.product?.name ?? "—"}</span>
+                {stockLevel(row) === "out" && <Badge variant="destructive">Out</Badge>}
+                {stockLevel(row) === "low" && <Badge variant="warning">Low</Badge>}
+              </p>
               <p className="mt-0.5 truncate text-xs text-muted-foreground">
                 {row.warehouse?.name} · {formatAmount(row.quantity)} in stock
               </p>

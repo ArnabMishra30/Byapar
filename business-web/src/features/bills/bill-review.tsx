@@ -149,6 +149,8 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
       totalTax: null,
       totalDiscount: null,
       grandTotal: null,
+      amountPaid: null,
+      balanceDue: null,
       lines: [{ ...emptyLine }],
       confidence: null,
       notes: null,
@@ -168,6 +170,36 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
   const [createParty, setCreateParty] = React.useState(true);
   const [createLine, setCreateLine] = React.useState<boolean[]>([]);
   const shouldCreateLine = (index: number) => createLine[index] ?? true;
+
+  // WHAT WAS PAID ON THE SPOT. A paper bill usually ends "Total / Paid /
+  // Balance", and a shop that records only the total has a credit book that
+  // disagrees with its cash box.
+  const [paidAmount, setPaidAmount] = React.useState(bill.reviewedData?.amountPaid ?? "");
+  const [paymentMethod, setPaymentMethod] =
+    React.useState<"CASH" | "BANK_TRANSFER" | "UPI" | "CHEQUE" | "OTHER">("CASH");
+
+  const toAmount = (value: string | null | undefined) => {
+    const parsed = Number(String(value ?? "").replace(/[^\d.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  // The total of the lines that will actually be recorded - not what the bill
+  // claims. A line dropped during review changes this, and the shop should see
+  // that before confirming rather than wonder about it afterwards.
+  const recordedTotal = data.lines.reduce((sum, line, index) => {
+    const included = lineProductIds[index] || (shouldCreateLine(index) && (line.description ?? "").trim());
+    if (!included) return sum;
+    return sum + toAmount(line.quantity) * toAmount(line.unitPrice);
+  }, 0);
+
+  const billTotal = toAmount(data.grandTotal);
+  // A rupee of rounding is not a discrepancy worth interrupting anybody for.
+  const totalsDiffer = billTotal > 0 && Math.abs(billTotal - recordedTotal) > 1;
+
+  const paidNow = toAmount(paidAmount);
+  const stillOwing = Math.max(recordedTotal - paidNow, 0);
+  const formatRupees = (value: number) =>
+    `₹${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   // What the server thinks this bill refers to in the shop's own records.
   const suggestionsQuery = useQuery({
@@ -282,16 +314,27 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
         createLine: data.lines.map((_, index) => shouldCreateLine(index)),
         createParty,
         newWarehouse: warehouseWillBeCreated ? { name: warehouseName.trim() } : null,
+        payment: paidNow > 0 ? { amount: String(paidNow), method: paymentMethod } : null,
       });
 
       return billsApi.confirm(bill.id, payload.document, {
         newParty: payload.newParty,
         newProducts: payload.newProducts,
         newWarehouse: payload.newWarehouse,
+        payment: payload.payment,
       });
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       toast.success(isPurchase ? "Purchase recorded" : "Sale recorded");
+      // The document posted but its payment did not: say so rather than let the
+      // shop believe the cash was recorded too.
+      if (result.paymentError) {
+        toast.warning(
+          `The ${isPurchase ? "payment" : "receipt"} was not recorded: ${stripBodyPrefix(
+            result.paymentError,
+          )}. Add it from Money ${isPurchase ? "Paid" : "Received"}.`,
+        );
+      }
       onDone();
     },
     onError: (error: Error) => toast.error(stripBodyPrefix(error.message)),
@@ -518,6 +561,69 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                 placeholder="Not read"
               />
             </Field>
+
+            <Field
+              label={isPurchase ? "Paid now" : "Received now"}
+              hint={
+                isPurchase
+                  ? "What you handed over today. Leave it empty if the whole bill is on credit."
+                  : "What the customer paid today. Leave it empty if the whole bill is on credit."
+              }
+            >
+              <div className="grid gap-2 sm:grid-cols-[1fr_11rem]">
+                <Input
+                  value={paidAmount ?? ""}
+                  onChange={(event) => setPaidAmount(event.target.value)}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                />
+                <select
+                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base sm:text-sm"
+                  value={paymentMethod}
+                  onChange={(event) =>
+                    setPaymentMethod(event.target.value as typeof paymentMethod)
+                  }
+                  aria-label="How it was paid"
+                >
+                  <option value="CASH">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="BANK_TRANSFER">Bank transfer</option>
+                  <option value="CHEQUE">Cheque</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+            </Field>
+
+            <dl className="mt-1 space-y-1.5 rounded-lg border bg-muted/30 p-3 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-muted-foreground">What will be recorded</dt>
+                <dd className="font-medium tabular-nums">{formatRupees(recordedTotal)}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-muted-foreground">
+                  {isPurchase ? "Paid now" : "Received now"}
+                </dt>
+                <dd className="tabular-nums">{formatRupees(paidNow)}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 border-t pt-1.5">
+                <dt className="font-medium">
+                  {isPurchase ? "Still owing to them" : "Still owed by them"}
+                </dt>
+                <dd className="font-semibold tabular-nums">{formatRupees(stillOwing)}</dd>
+              </div>
+            </dl>
+
+            {totalsDiffer && (
+              <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                <p className="text-sm text-muted-foreground">
+                  The bill says <span className="font-medium">{formatRupees(billTotal)}</span>, but
+                  the lines below add up to{" "}
+                  <span className="font-medium">{formatRupees(recordedTotal)}</span>. A line may
+                  have been misread, or left out. Only what is below gets recorded.
+                </p>
+              </div>
+            )}
           </FormSection>
 
           <FormSection
