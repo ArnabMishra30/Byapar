@@ -155,6 +155,47 @@ describe("buildConfirmPayload", () => {
   });
 });
 
+describe("which store the stock goes to", () => {
+  const base = {
+    data: bill({ lines: [{ ...emptyLine, description: "Rice", quantity: "1", unitPrice: "40" }] }),
+    direction: "IN" as const,
+    partyId: "supplier-1",
+    lineProductIds: ["product-1"],
+    createLine: [false],
+    createParty: false,
+  };
+
+  it("sends the chosen store and asks for nothing new", () => {
+    const payload = buildConfirmPayload({
+      ...base,
+      warehouseId: "wh-1",
+      newWarehouse: { name: "Main Store" },
+    });
+
+    expect(payload.document.warehouseId).toBe("wh-1");
+    // A store was picked, so nothing is created even if one was offered.
+    expect(payload.newWarehouse).toBeNull();
+  });
+
+  it("leaves the store out entirely when none is chosen, so the server resolves it", () => {
+    const payload = buildConfirmPayload({ ...base, warehouseId: "" });
+
+    expect("warehouseId" in payload.document).toBe(false);
+    expect(payload.newWarehouse).toBeNull();
+  });
+
+  it("asks for a first store to be created when the shop has none", () => {
+    const payload = buildConfirmPayload({
+      ...base,
+      warehouseId: "",
+      newWarehouse: { name: "Main Store" },
+    });
+
+    expect("warehouseId" in payload.document).toBe(false);
+    expect(payload.newWarehouse).toEqual({ name: "Main Store" });
+  });
+});
+
 describe("field sanity checks", () => {
   it("accepts a real GSTIN and rejects anything else", () => {
     expect(isUsableGstin("19ABCDE1234F1Z5")).toBe(true);

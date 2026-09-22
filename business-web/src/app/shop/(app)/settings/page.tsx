@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Building2, Receipt, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Building2, Receipt, ShieldCheck, SlidersHorizontal, Store } from "lucide-react";
 import { companyApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth/auth-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/shared/page-header";
 import { ErrorState } from "@/components/shared/states";
 import { Can } from "@/components/shared/permission-gate";
+import { StoresSection } from "@/features/settings/stores-section";
 
 /**
  * Business settings.
@@ -89,6 +90,10 @@ export default function SettingsPage() {
               <SlidersHorizontal className="h-4 w-4" />
               General
             </TabsTrigger>
+            <TabsTrigger value="stores" className="gap-1.5">
+              <Store className="h-4 w-4" />
+              Stores
+            </TabsTrigger>
             <TabsTrigger value="gst" className="gap-1.5">
               <ShieldCheck className="h-4 w-4" />
               GST
@@ -145,6 +150,10 @@ export default function SettingsPage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="stores">
+            <StoresSection />
           </TabsContent>
 
           <TabsContent value="gst">

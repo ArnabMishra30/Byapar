@@ -227,11 +227,22 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
     queryFn: () => warehousesApi.list({ limit: 100 }),
   });
 
-  // One warehouse is the common case; choose it so nobody has to.
+  const warehouseItems = warehouses.data?.items ?? [];
+
+  // One store is the common case; choose it so nobody has to. With several, the
+  // shop chooses: stock put in the wrong godown is an error only they can catch.
   React.useEffect(() => {
     const items = warehouses.data?.items ?? [];
-    if (!warehouseId && items.length > 0) setWarehouseId(items[0].id);
+    if (!warehouseId && items.length === 1) setWarehouseId(items[0].id);
   }, [warehouses.data, warehouseId]);
+
+  // A shop with no store yet gets one, rather than an empty dropdown it has no
+  // way to fill on the screen where it is trying to record its first bill.
+  const [createWarehouse, setCreateWarehouse] = React.useState(true);
+  const [warehouseName, setWarehouseName] = React.useState("Main Store");
+  const hasNoWarehouse = !warehouses.isLoading && warehouseItems.length === 0;
+  const warehouseWillBeCreated =
+    hasNoWarehouse && createWarehouse && warehouseName.trim().length > 0;
 
   const setField = <K extends keyof ExtractedBill>(key: K, value: ExtractedBill[K]) =>
     setData((current) => ({ ...current, [key]: value }));
@@ -270,11 +281,13 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
         lineProductIds,
         createLine: data.lines.map((_, index) => shouldCreateLine(index)),
         createParty,
+        newWarehouse: warehouseWillBeCreated ? { name: warehouseName.trim() } : null,
       });
 
       return billsApi.confirm(bill.id, payload.document, {
         newParty: payload.newParty,
         newProducts: payload.newProducts,
+        newWarehouse: payload.newWarehouse,
       });
     },
     onSuccess: () => {
@@ -292,7 +305,13 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
   if (!partyId && !partyWillBeCreated) {
     problems.push(isPurchase ? "Choose the supplier" : "Choose the customer");
   }
-  if (!warehouseId) problems.push("Choose a warehouse");
+  // Only worth asking about when there is a real choice to make.
+  if (!warehouseId && !warehouseWillBeCreated && warehouseItems.length > 0) {
+    problems.push("Choose which store this stock goes to");
+  }
+  if (!warehouseId && hasNoWarehouse && !warehouseWillBeCreated) {
+    problems.push("Add a store to keep this stock in");
+  }
   if (!data.invoiceDate) problems.push("Enter the bill date");
   if (isPurchase && !data.invoiceNumber) problems.push("Enter the supplier's invoice number");
   const recordedLines = data.lines.filter(
@@ -418,20 +437,55 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
               </label>
             )}
 
-            <Field label="Godown / store" required>
-              <select
-                className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base sm:text-sm"
-                value={warehouseId}
-                onChange={(event) => setWarehouseId(event.target.value)}
+            {hasNoWarehouse ? (
+              <Field
+                label="Godown / store"
+                hint="Stock has to be kept somewhere. You can rename or add more in Settings."
               >
-                <option value="">Choose…</option>
-                {warehouses.data?.items.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
+                <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-dashed p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-2.5 h-4 w-4 shrink-0 accent-primary"
+                    checked={createWarehouse}
+                    onChange={(event) => setCreateWarehouse(event.target.checked)}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="mb-1.5 block text-sm font-medium">
+                      Add your first store
+                    </span>
+                    <Input
+                      value={warehouseName}
+                      onChange={(event) => setWarehouseName(event.target.value)}
+                      placeholder="Main Store"
+                      disabled={!createWarehouse}
+                      onClick={(event) => event.preventDefault()}
+                    />
+                  </span>
+                </label>
+              </Field>
+            ) : (
+              <Field
+                label="Godown / store"
+                hint={
+                  warehouseItems.length === 1
+                    ? "You have one store, so it is used automatically."
+                    : "Which godown this stock goes to."
+                }
+              >
+                <select
+                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base sm:text-sm"
+                  value={warehouseId}
+                  onChange={(event) => setWarehouseId(event.target.value)}
+                >
+                  <option value="">Choose…</option>
+                  {warehouseItems.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
           </FormSection>
 
           <FormSection title="Bill details">

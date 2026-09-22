@@ -1,4 +1,5 @@
 import * as unitRepository from '../units/unit.repository.js';
+import * as warehouseRepository from '../warehouses/warehouse.repository.js';
 import * as taxRepository from '../taxes/tax.repository.js';
 import * as companySettingsRepository from '../company-settings/company-settings.repository.js';
 import { initializeSystemAccounts } from '../accounting/account.service.js';
@@ -8,6 +9,17 @@ import { initializeSystemAccounts } from '../accounting/account.service.js';
 //
 // These are per-company rows, never global shared records - a company can rename
 // or deactivate any of them without affecting anyone else.
+
+/**
+ * Somewhere to keep stock, from the first day.
+ *
+ * WHY THIS IS A DEFAULT AND NOT A QUESTION. Every purchase, sale and stock
+ * movement must name a warehouse, so a shop with none cannot record anything at
+ * all - and "Godown / store" is not a decision a corner shop with one room
+ * wants to make before its first sale. One is created, and a shop with several
+ * godowns adds them in settings.
+ */
+export const DEFAULT_WAREHOUSES = [{ name: 'Main Store', code: 'MAIN' }];
 
 export const DEFAULT_UNITS = [
   { name: 'Piece', shortCode: 'PCS' },
@@ -51,6 +63,13 @@ export async function initializeCompanyDefaults(companyId, client) {
 
   await taxRepository.createMany(
     DEFAULT_TAXES.map((tax) => ({ ...tax, companyId })),
+    client,
+  );
+
+  // skipDuplicates against (companyId, name) and (companyId, code), so a shop
+  // that renamed or added its own stores keeps exactly what it has.
+  await warehouseRepository.createMany(
+    DEFAULT_WAREHOUSES.map((warehouse) => ({ ...warehouse, companyId })),
     client,
   );
 

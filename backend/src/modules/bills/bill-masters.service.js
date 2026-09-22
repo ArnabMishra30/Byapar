@@ -4,6 +4,8 @@ import * as customerService from '../customers/customer.service.js';
 import * as categoryService from '../categories/category.service.js';
 import * as categoryRepository from '../categories/category.repository.js';
 import * as unitRepository from '../units/unit.repository.js';
+import * as warehouseService from '../warehouses/warehouse.service.js';
+import * as warehouseRepository from '../warehouses/warehouse.repository.js';
 import { ApiError } from '../../utils/api-error.js';
 
 // ADDING WHAT THE BILL MENTIONS BUT THE SHOP DOES NOT HAVE YET.
@@ -111,6 +113,65 @@ async function resolveUnitId(companyId, unitHint) {
     'NO_UNIT_AVAILABLE',
     'Add a unit (such as Piece) in your settings before adding products from a bill.',
   );
+}
+
+/** A short code the shop has not used yet, derived from the name. */
+async function availableCode(companyId, preferred) {
+  const base =
+    String(preferred ?? '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 16) || 'STORE';
+
+  if (!(await warehouseRepository.findByCodeAndCompany(base, companyId))) return base;
+
+  for (let suffix = 2; suffix < 100; suffix += 1) {
+    const candidate = `${base.slice(0, 14)}${suffix}`;
+    if (!(await warehouseRepository.findByCodeAndCompany(candidate, companyId))) return candidate;
+  }
+
+  throw ApiError.business(
+    422,
+    'NO_STORE_CODE_AVAILABLE',
+    'Could not name a new store. Add one in Settings and choose it here.',
+  );
+}
+
+/**
+ * Which store this bill's stock belongs to, without asking when there is no
+ * question to ask.
+ *
+ * A shop with one store never needs to pick it, and a shop with none is offered
+ * one on the review screen. A shop with several IS asked, because putting stock
+ * in the wrong godown is a real error that only the shop can prevent.
+ *
+ * @param {{ name?: string, code?: string }|null} newWarehouse  create this one, if given
+ * @returns {Promise<string|null>} null when the shop must choose for itself
+ */
+export async function resolveWarehouseId(currentUser, newWarehouse) {
+  const { companyId } = currentUser;
+
+  if (newWarehouse) {
+    const name = String(newWarehouse.name ?? '').trim() || 'Main Store';
+
+    // Asked to add one that already exists - use it rather than refusing.
+    const existing = await warehouseRepository.findByNameAndCompany(name, companyId);
+    if (existing) return existing.id;
+
+    const created = await warehouseService.create(currentUser, {
+      name,
+      code: await availableCode(companyId, newWarehouse.code || name),
+    });
+    return created.id;
+  }
+
+  const { items } = await warehouseRepository.findManyByCompany(companyId, {
+    skip: 0,
+    take: 2,
+    isActive: true,
+  });
+
+  return items.length === 1 ? items[0].id : null;
 }
 
 /**

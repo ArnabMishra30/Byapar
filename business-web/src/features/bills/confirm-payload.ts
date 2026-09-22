@@ -23,10 +23,16 @@ export interface NewProduct {
   price?: string | null;
 }
 
+/** A store to create for a shop that has none. The server names it if we do not. */
+export interface NewWarehouse {
+  name: string;
+}
+
 export interface ConfirmPayload {
   document: Record<string, unknown>;
   newParty: NewParty | null;
   newProducts: NewProduct[];
+  newWarehouse: NewWarehouse | null;
 }
 
 /** A GSTIN is 15 characters. Anything else read off a bill is noise, not a GSTIN. */
@@ -57,6 +63,14 @@ export interface BuildArgs {
   createLine: boolean[];
   /** Whether an unmatched party should be added. */
   createParty: boolean;
+  /**
+   * The store to create, for a shop that has none yet.
+   *
+   * Left out when a store is chosen, or when the shop has one already: the
+   * server uses the only store there is rather than asking about a decision
+   * with one possible answer.
+   */
+  newWarehouse?: NewWarehouse | null;
 }
 
 /**
@@ -73,6 +87,7 @@ export function buildConfirmPayload({
   lineProductIds,
   createLine,
   createParty,
+  newWarehouse = null,
 }: BuildArgs): ConfirmPayload {
   const isPurchase = direction === "IN";
 
@@ -114,7 +129,9 @@ export function buildConfirmPayload({
       : null;
 
   const document: Record<string, unknown> = {
-    warehouseId,
+    // Left out entirely when no store is chosen: the server then uses the shop's
+    // only store, or the one it is about to create.
+    ...(warehouseId ? { warehouseId } : {}),
     invoiceDate: data.invoiceDate,
     items,
     ...(isPurchase
@@ -122,5 +139,10 @@ export function buildConfirmPayload({
       : { ...(partyId ? { customerId: partyId } : {}) }),
   };
 
-  return { document, newParty, newProducts };
+  return {
+    document,
+    newParty,
+    newProducts,
+    newWarehouse: warehouseId ? null : newWarehouse,
+  };
 }

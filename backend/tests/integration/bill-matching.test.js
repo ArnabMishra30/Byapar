@@ -229,6 +229,82 @@ describe('POST /api/v1/bills/:id/confirm with records that do not exist yet', ()
     expect(suggestions.body.data.lines[0].productId).toBe(product.id);
   });
 
+  it('does not ask which store when the shop has exactly one', async () => {
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Sharma General Store',
+      lines: [{ description: 'Basmati Rice 5kg', quantity: '1', unitPrice: '420' }],
+    });
+
+    const response = await request(app)
+      .post(`/api/v1/bills/${bill.id}/confirm`)
+      .set(auth(tokenA))
+      .send({
+        document: {
+          // No warehouseId at all: there is only one, so there is nothing to ask.
+          supplierId: ctxA.supplierId,
+          invoiceNumber: 'INV-NOWH-1',
+          invoiceDate: '2026-06-15',
+          items: [{ productId: ctxA.productId, quantity: '1', unitCost: '420' }],
+        },
+      });
+
+    expect(response.status).toBe(201);
+
+    const purchase = await prisma.purchase.findUnique({
+      where: { id: response.body.data.bill.posted.sourceId },
+    });
+    expect(purchase.warehouseId).toBe(ctxA.warehouseId);
+  });
+
+  it('creates the first store for a shop that has none', async () => {
+    const company = await createCompanyWithUsers('matchc');
+    const token = await login(app, company.admin.email, PASSWORD);
+
+    const category = await request(app)
+      .post('/api/v1/categories')
+      .set(auth(token))
+      .send({ name: 'General C' });
+    await request(app)
+      .post('/api/v1/units')
+      .set(auth(token))
+      .send({ name: 'Piece C', shortCode: 'PCSC' });
+
+    expect(await prisma.warehouse.count({ where: { companyId: company.company.id } })).toBe(0);
+
+    const bill = await createReviewBill(company.company.id, company.admin.id, {
+      partyName: 'First Supplier',
+      lines: [{ description: 'Sugar 1kg', quantity: '2', unitPrice: '45' }],
+    });
+
+    const response = await request(app)
+      .post(`/api/v1/bills/${bill.id}/confirm`)
+      .set(auth(token))
+      .send({
+        document: {
+          invoiceNumber: 'INV-FIRST-1',
+          invoiceDate: '2026-06-15',
+          items: [{ quantity: '2', unitCost: '45' }],
+        },
+        newParty: { name: 'First Supplier' },
+        newProducts: [{ index: 0, name: 'Sugar 1kg', unit: 'kg', price: '45' }],
+        newWarehouse: { name: 'Main Store' },
+      });
+
+    expect(response.status).toBe(201);
+    expect(category.status).toBe(201);
+
+    const warehouses = await prisma.warehouse.findMany({
+      where: { companyId: company.company.id },
+    });
+    expect(warehouses).toHaveLength(1);
+    expect(warehouses[0].name).toBe('Main Store');
+
+    const purchase = await prisma.purchase.findUnique({
+      where: { id: response.body.data.bill.posted.sourceId },
+    });
+    expect(purchase.warehouseId).toBe(warehouses[0].id);
+  });
+
   it('refuses a document that is still incomplete, and creates nothing', async () => {
     const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
       partyName: 'Ghost Traders',
@@ -252,5 +328,35 @@ describe('POST /api/v1/bills/:id/confirm with records that do not exist yet', ()
 
     const stillUnposted = await prisma.bill.findUnique({ where: { id: bill.id } });
     expect(stillUnposted.status).not.toBe('POSTED');
+  });
+
+  // Last, because it gives company A a second store and so changes the answer
+  // to "which store?" for everything after it.
+  it('asks which store once a shop has more than one', async () => {
+    await request(app)
+      .post('/api/v1/warehouses')
+      .set(auth(tokenA))
+      .send({ name: 'Back Godown A', code: 'BACKA' });
+
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Sharma General Store',
+      lines: [{ description: 'Basmati Rice 5kg', quantity: '1', unitPrice: '420' }],
+    });
+
+    const response = await request(app)
+      .post(`/api/v1/bills/${bill.id}/confirm`)
+      .set(auth(tokenA))
+      .send({
+        document: {
+          supplierId: ctxA.supplierId,
+          invoiceNumber: 'INV-TWOWH-1',
+          invoiceDate: '2026-06-15',
+          items: [{ productId: ctxA.productId, quantity: '1', unitCost: '420' }],
+        },
+      });
+
+    // Guessing between two godowns would put stock in the wrong place.
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(response.body)).toMatch(/warehouse/i);
   });
 });

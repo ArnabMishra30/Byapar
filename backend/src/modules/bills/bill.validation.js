@@ -76,11 +76,19 @@ const newProductSchema = z.object({
   price: z.string().trim().max(30).nullable().optional(),
 });
 
+/** A store to create for a shop that has none yet. Both parts optional. */
+const newWarehouseSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  code: z.string().trim().max(20).optional(),
+});
+
 export const confirmBillSchema = z.object({
   document: z.record(z.unknown()),
   /** Created before posting, through the ordinary services, only if sent. */
   newParty: newPartySchema.nullable().optional(),
   newProducts: z.array(newProductSchema).max(500).optional().default([]),
+  /** Created only when the document names no store and the shop asked for one. */
+  newWarehouse: newWarehouseSchema.nullable().optional(),
   /**
    * Whether to post immediately or leave a draft. Defaults to posting: a shop
    * confirming a bill has already reviewed it, and leaving silent drafts behind

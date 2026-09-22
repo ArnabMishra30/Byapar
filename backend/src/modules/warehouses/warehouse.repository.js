@@ -53,6 +53,10 @@ export async function findManyByCompany(companyId, { skip, take, search, isActiv
   return { items, total };
 }
 
+export function createMany(data, client = prisma) {
+  return client.warehouse.createMany({ data, skipDuplicates: true });
+}
+
 export function create(data, client = prisma) {
   return client.warehouse.create({ data, select: FIELDS });
 }

@@ -6,7 +6,11 @@ import * as billStorage from './bill-storage.service.js';
 import { extractBill, isExtractionConfigured } from './bill-extraction.service.js';
 import { DOCUMENT_SCHEMA_BY_DIRECTION } from './bill.validation.js';
 import { suggestMatches } from './bill-matching.service.js';
-import { createPartyFromBill, createProductsFromBill } from './bill-masters.service.js';
+import {
+  createPartyFromBill,
+  createProductsFromBill,
+  resolveWarehouseId,
+} from './bill-masters.service.js';
 import * as purchaseService from '../purchases/purchase.service.js';
 import * as salesService from '../sales/sales.service.js';
 
@@ -241,7 +245,7 @@ export async function suggestions(currentUser, id) {
 export async function confirm(
   currentUser,
   id,
-  { document, postImmediately = true, newParty = null, newProducts = [] },
+  { document, postImmediately = true, newParty = null, newProducts = [], newWarehouse = null },
 ) {
   const { companyId } = currentUser;
 
@@ -285,6 +289,15 @@ export async function confirm(
     documentToPost.items = (documentToPost.items ?? []).map((item, index) =>
       createdProductIds.has(index) ? { ...item, productId: createdProductIds.get(index) } : item,
     );
+  }
+
+  // WHERE THE STOCK GOES. Posting needs a store, but a shop with exactly one
+  // should never be asked to say so, and a shop with none is offered one on the
+  // review screen. A shop with several is left to choose: stock in the wrong
+  // godown is an error only the shop can prevent, so the schema below asks.
+  if (!documentToPost.warehouseId) {
+    const warehouseId = await resolveWarehouseId(currentUser, newWarehouse);
+    if (warehouseId) documentToPost.warehouseId = warehouseId;
   }
 
   const schema = DOCUMENT_SCHEMA_BY_DIRECTION[bill.direction];

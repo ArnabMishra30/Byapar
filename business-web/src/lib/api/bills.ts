@@ -68,6 +68,12 @@ export interface NewPartyInput {
   address?: string;
 }
 
+/** A store to create for a shop that has none yet. */
+export interface NewWarehouseInput {
+  name?: string;
+  code?: string;
+}
+
 export interface NewProductInput {
   /** The position in document.items this product belongs to. */
   index: number;
@@ -167,13 +173,15 @@ export const billsApi = {
       newParty?: NewPartyInput | null;
       /** Products a bill line names that the shop does not stock yet. */
       newProducts?: NewProductInput[];
+      /** A store to create when the document names none and the shop has none. */
+      newWarehouse?: NewWarehouseInput | null;
       postImmediately?: boolean;
     } = {}
   ): Promise<{ bill: Bill; document: Record<string, unknown> }> => {
-    const { newParty = null, newProducts = [], postImmediately = true } = extras;
+    const { newParty = null, newProducts = [], newWarehouse = null, postImmediately = true } = extras;
     const res = await apiClient.post<{
       data: { bill: Bill; document: Record<string, unknown> };
-    }>(`/bills/${id}/confirm`, { document, postImmediately, newParty, newProducts });
+    }>(`/bills/${id}/confirm`, { document, postImmediately, newParty, newProducts, newWarehouse });
     return res.data.data;
   },
 
