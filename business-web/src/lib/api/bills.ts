@@ -82,8 +82,11 @@ export const billsApi = {
   /**
    * Sends the photo or PDF to our own server.
    *
-   * multipart/form-data, so the Content-Type header is left to the browser -
-   * setting it by hand drops the boundary and the upload silently fails.
+   * THE CONTENT TYPE MUST BE SET HERE. The client's default is application/json,
+   * and axios reacts to a JSON content type by converting FormData into a JSON
+   * object (lib/defaults/index.js) - the file disappears and the server answers
+   * 400 NO_FILE. Naming multipart/form-data stops that; axios then drops this
+   * boundary-less header so the browser can supply the real one.
    */
   upload: async (file: File, direction: BillDirection): Promise<Bill> => {
     const form = new FormData();
@@ -91,6 +94,7 @@ export const billsApi = {
     form.append("file", file);
 
     const res = await apiClient.post<{ data: { bill: Bill } }>("/bills", form, {
+      headers: { "Content-Type": "multipart/form-data" },
       // Reading a bill takes a while; the default client timeout is too short.
       timeout: 120000,
     });
