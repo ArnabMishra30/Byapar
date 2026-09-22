@@ -1,0 +1,134 @@
+import { apiClient } from "./client";
+import { getList, getOne, postOne, patchOne, type ListParams, type ListResult } from "./http";
+
+// BILL IMPORT, from the shop's side.
+//
+// The browser uploads a file to OUR server and gets back structured fields. It
+// never talks to any AI vendor and never holds a key - there is deliberately no
+// NEXT_PUBLIC_ variable anywhere near this. The model is called server-side, by
+// the backend, with a secret the browser has no way to see.
+
+export type BillDirection = "IN" | "OUT";
+export type BillStatus = "UPLOADED" | "PROCESSING" | "REVIEW" | "POSTED" | "FAILED" | "CANCELLED";
+
+/** One line the extractor read off the bill. Every field may legitimately be null. */
+export interface ExtractedLine {
+  description: string | null;
+  hsnCode: string | null;
+  quantity: string | null;
+  unit: string | null;
+  unitPrice: string | null;
+  discount: string | null;
+  taxRate: string | null;
+  lineTotal: string | null;
+}
+
+export interface ExtractedBill {
+  partyName: string | null;
+  partyGstin: string | null;
+  partyPhone: string | null;
+  partyAddress: string | null;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  subtotal: string | null;
+  totalTax: string | null;
+  totalDiscount: string | null;
+  grandTotal: string | null;
+  lines: ExtractedLine[];
+  confidence: "HIGH" | "MEDIUM" | "LOW" | null;
+  notes: string | null;
+}
+
+export interface Bill {
+  id: string;
+  direction: BillDirection;
+  status: BillStatus;
+  file: { name: string; mimeType: string; size: number };
+  extraction: unknown | null;
+  extractionModel: string | null;
+  extractedAt: string | null;
+  extractionError: string | null;
+  reviewedData: ExtractedBill | null;
+  posted: {
+    sourceType: "PURCHASE" | "SALES_INVOICE";
+    sourceId: string;
+    postedAt: string;
+    postedBy: { id: string; name: string } | null;
+  } | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  uploadedBy: { id: string; name: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BillSummary {
+  counts: Record<BillStatus, number>;
+  awaitingReview: number;
+  /** Whether the server has an AI key configured at all. */
+  extractionConfigured: boolean;
+}
+
+export const billsApi = {
+  list: (params?: ListParams): Promise<ListResult<Bill>> => getList<Bill>("/bills", params),
+
+  get: (id: string): Promise<Bill> => getOne<Bill>(`/bills/${id}`, "bill"),
+
+  summary: async (): Promise<BillSummary> => {
+    const res = await apiClient.get<{ data: BillSummary }>("/bills/summary");
+    return res.data.data;
+  },
+
+  /**
+   * Sends the photo or PDF to our own server.
+   *
+   * multipart/form-data, so the Content-Type header is left to the browser -
+   * setting it by hand drops the boundary and the upload silently fails.
+   */
+  upload: async (file: File, direction: BillDirection): Promise<Bill> => {
+    const form = new FormData();
+    form.append("direction", direction);
+    form.append("file", file);
+
+    const res = await apiClient.post<{ data: { bill: Bill } }>("/bills", form, {
+      // Reading a bill takes a while; the default client timeout is too short.
+      timeout: 120000,
+    });
+    return res.data.data.bill;
+  },
+
+  /** The stored image or PDF, fetched with the caller's token. */
+  fileUrl: (id: string) => `/bills/${id}/file`,
+
+  fileBlob: async (id: string): Promise<Blob> => {
+    const res = await apiClient.get(`/bills/${id}/file`, { responseType: "blob" });
+    return res.data as Blob;
+  },
+
+  retry: (id: string): Promise<Bill> => postOne<Bill>(`/bills/${id}/retry`, "bill"),
+
+  saveReview: (id: string, reviewedData: ExtractedBill): Promise<Bill> =>
+    patchOne<Bill>(`/bills/${id}/review`, "bill", { reviewedData }),
+
+  /**
+   * Confirms the bill and posts it.
+   *
+   * `document` is an ordinary purchase or sales payload carrying real ids the
+   * user chose during review. The server holds it to the same schema the normal
+   * form uses, and posts it through the same service - so an imported bill and a
+   * typed one produce identical accounting.
+   */
+  confirm: async (
+    id: string,
+    document: Record<string, unknown>,
+    postImmediately = true
+  ): Promise<{ bill: Bill; document: Record<string, unknown> }> => {
+    const res = await apiClient.post<{
+      data: { bill: Bill; document: Record<string, unknown> };
+    }>(`/bills/${id}/confirm`, { document, postImmediately });
+    return res.data.data;
+  },
+
+  cancel: (id: string, reason?: string): Promise<Bill> =>
+    postOne<Bill>(`/bills/${id}/cancel`, "bill", { reason }),
+};

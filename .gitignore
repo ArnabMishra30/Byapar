@@ -1,0 +1,43 @@
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Next.js build output
+.next/
+frontend/.next/
+out/
+frontend/out/
+
+# Environment files - never commit real secrets
+.env
+.env.*
+!.env.example
+!.env.test.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+!backend/.env.test.example
+frontend/.env.local
+frontend/.env.*.local
+
+# Test and build output
+*.tsbuildinfo
+coverage/
+dist/
+build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp

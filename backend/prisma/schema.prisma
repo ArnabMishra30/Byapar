@@ -1,0 +1,2117 @@
+// Pharma ERP schema.
+//
+// Contains identity (Company, User) and business master data (Category, Unit, Tax,
+// Warehouse, Product, Supplier, Customer, CompanySettings).
+// Transactions (purchases, sales, inventory movements, accounting) come in later phases.
+//
+// CONVENTIONS
+//  - Every business model has companyId and is scoped by it. Uniqueness is always
+//    (companyId, field), never a global unique, so two companies can use the same
+//    category name, SKU or barcode.
+//  - Money is Decimal(18, 4). Quantities are Decimal(18, 6). Never Float.
+//  - No hard deletes of master data: use isActive.
+//  - Product does NOT store stock. Inventory arrives in a later phase as
+//    Product -> Warehouse -> InventoryBalance -> StockMovement.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  /// A shop's owner. Full control of that shop's books.
+  ADMIN
+  /// A shop's employee. Prepares documents; an admin posts them.
+  STAFF
+  /// The SaaS operator. Manages plans, sales staff and every shop account.
+  PLATFORM_ADMIN
+  /// The SaaS operator's field staff, who sign shops up and collect payment.
+  SALES_STAFF
+}
+
+model Company {
+  id                  String              @id @default(uuid())
+  name                String
+  // One GSTIN identifies one legal entity, so it cannot be shared by two companies.
+  // Nullable: PostgreSQL allows many NULLs in a unique column, so companies
+  // without a GSTIN are still fine.
+  gstin               String?             @unique
+  /// The registered legal name, when it differs from the trading name.
+  legalName           String?
+  /// Two-digit GST state code, e.g. "27" for Maharashtra. THIS FIELD SWITCHES
+  /// GST ON for the company: without it there is no way to tell an intra-state
+  /// supply from an inter-state one, so tax stays un-split, exactly as it was
+  /// before this phase.
+  stateCode           String?
+  registeredAddress   String?
+  gstRegistrationType GstRegistrationType @default(UNREGISTERED)
+
+  /// Collected when a sales rep signs the shop up. All optional: a small shop
+  /// may not have an email, and none of this affects the books.
+  ownerName           String?
+  phone               String?
+  email               String?
+  city                String?
+  pincode             String?
+
+  /// The sales staff member who registered this shop, kept for their commission
+  /// and for the platform's own reporting. Null for a shop created any other way.
+  onboardedById       String?
+
+  isActive            Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  users                 User[]
+  onboardedBy           User?              @relation("CompanyOnboardedBy", fields: [onboardedById], references: [id])
+  subscriptions         Subscription[]
+  bills                 Bill[]
+  settings              CompanySettings?
+  categories            Category[]
+  units                 Unit[]
+  taxes                 Tax[]
+  warehouses            Warehouse[]
+  products              Product[]
+  suppliers             Supplier[]
+  customers             Customer[]
+  inventoryBalances     InventoryBalance[]
+  stockMovements        StockMovement[]
+  purchases             Purchase[]
+  purchaseReturns       PurchaseReturn[]
+  supplierPayables      SupplierPayable[]
+  supplierLedgerEntries SupplierLedgerEntry[]
+  supplierPayments      SupplierPayment[]
+  salesInvoices         SalesInvoice[]
+  customerReceivables   CustomerReceivable[]
+  customerLedgerEntries CustomerLedgerEntry[]
+  customerPayments      CustomerPayment[]
+  salesReturns          SalesReturn[]
+  documentSequences     DocumentSequence[]
+  accounts              Account[]
+  journalEntries        JournalEntry[]
+  journalLines          JournalLine[]
+  taxClassifications    TaxClassification[]
+  expenses              Expense[]
+  accountingPeriods AccountingPeriod[]
+
+  @@map("companies")
+}
+
+/// One settings row per company. Created automatically when a company is created.
+model CompanySettings {
+  id        String @id @default(uuid())
+  companyId String @unique
+
+  currency                String @default("INR")
+  timezone                String @default("Asia/Kolkata")
+  dateFormat              String @default("DD/MM/YYYY")
+  invoicePrefix           String @default("INV")
+  purchasePrefix          String @default("PUR")
+  /// Month the financial year starts in, 1-12. India defaults to April.
+  financialYearStartMonth Int    @default(4)
+
+  /// When true, a posting whose date falls in NO accounting period is refused.
+  /// Defaults to FALSE, which is exactly how every company behaved before
+  /// periods existed: a closed period blocks, and an absent one does not. A
+  /// business that wants the stricter rule turns it on deliberately.
+  requireOpenPeriod       Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("company_settings")
+}
+
+model Category {
+  id          String  @id @default(uuid())
+  companyId   String
+  name        String
+  description String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id])
+  products Product[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("categories")
+}
+
+model Unit {
+  id        String  @id @default(uuid())
+  companyId String
+  name      String
+  /// Short display code, e.g. PCS, KG, BOX. No conversion logic in this phase.
+  shortCode String
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id])
+  products Product[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, shortCode])
+  @@index([companyId])
+  @@map("units")
+}
+
+enum TaxType {
+  GST
+}
+
+model Tax {
+  id        String  @id @default(uuid())
+  companyId String
+  name      String
+  /// The total percentage, e.g. 18.00. This stays the headline rate.
+  rate      Decimal @db.Decimal(5, 2)
+  type      TaxType @default(GST)
+
+  /// The component split. By convention cgst + sgst == rate and igst == rate;
+  /// both are validated on write. Backfilled deterministically for taxes that
+  /// existed before this phase.
+  cgstRate Decimal @db.Decimal(5, 2) @default(0)
+  sgstRate Decimal @db.Decimal(5, 2) @default(0)
+  igstRate Decimal @db.Decimal(5, 2) @default(0)
+  /// Compensation cess, charged on top of GST. Zero for almost everything.
+  cessRate Decimal @db.Decimal(5, 2) @default(0)
+
+  /// Why a line taxed at this rate is taxed that way. A 0% TAXABLE supply and
+  /// an EXEMPT supply look identical in the ledger and are reported differently.
+  treatment TaxTreatment @default(TAXABLE)
+
+  /// When this rate applies. Documents dated outside the window are rejected.
+  effectiveFrom DateTime? @db.Date
+  effectiveTo   DateTime? @db.Date
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company            Company             @relation(fields: [companyId], references: [id])
+  products           Product[]
+  purchaseItems      PurchaseItem[]
+  salesInvoiceItems  SalesInvoiceItem[]
+  taxClassifications TaxClassification[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("taxes")
+}
+
+/// Master data only in this phase. Stock quantities are NOT stored here.
+model Warehouse {
+  id        String  @id @default(uuid())
+  companyId String
+  name      String
+  code      String
+  address   String?
+  /// GST state of this location. Falls back to the company's state when unset.
+  /// A company with warehouses in two states needs this to get tax right.
+  stateCode String?
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  inventoryBalances InventoryBalance[]
+  stockMovements    StockMovement[]
+  purchases         Purchase[]
+  purchaseReturns   PurchaseReturn[]
+  salesInvoices     SalesInvoice[]
+  salesReturns      SalesReturn[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("warehouses")
+}
+
+model Product {
+  id                  String  @id @default(uuid())
+  companyId           String
+  categoryId          String
+  unitId              String
+  taxId               String?
+  /// HSN/SAC classification. Optional, so existing products stay valid.
+  taxClassificationId String?
+  name                String
+  /// Unique per company when present. NULLs are unrestricted in PostgreSQL.
+  sku                 String?
+  barcode             String?
+  description         String?
+
+  purchasePrice Decimal @db.Decimal(18, 4) @default(0)
+  sellingPrice  Decimal @db.Decimal(18, 4) @default(0)
+  /// Quantity threshold for future low-stock alerts. Not a stock level.
+  reorderLevel  Decimal @db.Decimal(18, 6) @default(0)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inventoryBalances   InventoryBalance[]
+  stockMovements      StockMovement[]
+  purchaseItems       PurchaseItem[]
+  purchaseReturnItems PurchaseReturnItem[]
+  salesInvoiceItems   SalesInvoiceItem[]
+  salesReturnItems    SalesReturnItem[]
+
+  company           Company            @relation(fields: [companyId], references: [id])
+  category          Category           @relation(fields: [categoryId], references: [id])
+  unit              Unit               @relation(fields: [unitId], references: [id])
+  tax               Tax?               @relation(fields: [taxId], references: [id])
+  taxClassification TaxClassification? @relation(fields: [taxClassificationId], references: [id])
+
+  @@unique([companyId, sku])
+  @@unique([companyId, barcode])
+  @@index([companyId])
+  @@index([companyId, categoryId])
+  @@index([companyId, unitId])
+  @@map("products")
+}
+
+model Supplier {
+  id                  String              @id @default(uuid())
+  companyId           String
+  name                String
+  phone               String?
+  email               String?
+  address             String?
+  gstin               String?
+  /// The supplier's GST state. Required once the company itself is GST-enabled:
+  /// without it a purchase cannot be classified intra- or inter-state.
+  stateCode           String?
+  gstRegistrationType GstRegistrationType @default(UNREGISTERED)
+
+  /// Balance carried in when the business started using this system.
+  /// Purchase and payable ledgers are a later phase.
+  openingBalance Decimal @db.Decimal(18, 4) @default(0)
+  /// What we are willing to owe this supplier. Recorded and reported; never
+  /// enforced, because refusing to record a bill a supplier has already sent
+  /// would lose a real liability.
+  creditLimit    Decimal @db.Decimal(18, 4) @default(0)
+  /// Payment terms in days, used to derive a bill's due date when none is given.
+  creditDays     Int?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  purchases     Purchase[]
+  expenses      Expense[]
+  payables      SupplierPayable[]
+  ledgerEntries SupplierLedgerEntry[]
+  payments      SupplierPayment[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("suppliers")
+}
+
+model Customer {
+  id                  String              @id @default(uuid())
+  companyId           String
+  name                String
+  phone               String?
+  email               String?
+  address             String?
+  gstin               String?
+  /// The customer's GST state, and the default place of supply for their sales.
+  stateCode           String?
+  gstRegistrationType GstRegistrationType @default(UNREGISTERED)
+
+  openingBalance Decimal @db.Decimal(18, 4) @default(0)
+  /// The most this customer may owe at once. ZERO MEANS UNLIMITED - it is the
+  /// default every customer already carries, so treating it as "no credit"
+  /// would block every existing sale. See docs/architecture.md.
+  creditLimit    Decimal @db.Decimal(18, 4) @default(0)
+  /// Payment terms in days. When set, a sales invoice with no explicit due date
+  /// gets invoiceDate + creditDays, which is what makes overdue reporting work
+  /// without anyone typing a date on every invoice.
+  creditDays     Int?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  salesInvoices SalesInvoice[]
+  salesReturns  SalesReturn[]
+  receivables   CustomerReceivable[]
+  ledgerEntries CustomerLedgerEntry[]
+  payments      CustomerPayment[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@map("customers")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         UserRole  @default(STAFF)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // A SHOP user belongs to one company. A PLATFORM user belongs to none: sales
+  // staff work across every shop and own none of them, so the column is null for
+  // them. Relaxing NOT NULL is safe on existing data - every row already has one.
+  //
+  // Nothing else changes: a shop route reads req.user.companyId as it always
+  // did, and a platform user is kept off those routes by role, not by luck.
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+
+  /// What a SALES_STAFF member may do, e.g. ["BUSINESS_CREATE","PAYMENT_CREATE"].
+  /// Empty for shop users, whose access is decided by their role alone, and
+  /// ignored for PLATFORM_ADMIN, who can do everything.
+  permissions String[] @default([])
+
+  stockMovements            StockMovement[]
+  purchasesCreated          Purchase[]            @relation("PurchaseCreatedBy")
+  purchasesPosted           Purchase[]            @relation("PurchasePostedBy")
+  purchasesCancelled        Purchase[]            @relation("PurchaseCancelledBy")
+  purchaseReturnsCreated    PurchaseReturn[]      @relation("PurchaseReturnCreatedBy")
+  purchaseReturnsPosted     PurchaseReturn[]      @relation("PurchaseReturnPostedBy")
+  purchaseReturnsCancelled  PurchaseReturn[]      @relation("PurchaseReturnCancelledBy")
+  supplierLedgerEntries     SupplierLedgerEntry[]
+  supplierPaymentsCreated   SupplierPayment[]     @relation("SupplierPaymentCreatedBy")
+  supplierPaymentsPosted    SupplierPayment[]     @relation("SupplierPaymentPostedBy")
+  supplierPaymentsCancelled SupplierPayment[]     @relation("SupplierPaymentCancelledBy")
+  customerLedgerEntries     CustomerLedgerEntry[]
+  salesInvoicesCreated      SalesInvoice[]        @relation("SalesInvoiceCreatedBy")
+  salesInvoicesCreditOverridden SalesInvoice[]    @relation("SalesInvoiceCreditOverrideBy")
+  accountingPeriodsCreated  AccountingPeriod[]    @relation("AccountingPeriodCreatedBy")
+  companiesOnboarded        Company[]             @relation("CompanyOnboardedBy")
+  subscriptionsCreated      Subscription[]        @relation("SubscriptionCreatedBy")
+  subscriptionPaymentsTaken SubscriptionPayment[] @relation("SubscriptionPaymentCollectedBy")
+  billsUploaded             Bill[]                @relation("BillUploadedBy")
+  billsPosted               Bill[]                @relation("BillPostedBy")
+  accountingPeriodsClosed   AccountingPeriod[]    @relation("AccountingPeriodClosedBy")
+  accountingPeriodsReopened AccountingPeriod[]    @relation("AccountingPeriodReopenedBy")
+  salesInvoicesPosted       SalesInvoice[]        @relation("SalesInvoicePostedBy")
+  salesInvoicesCancelled    SalesInvoice[]        @relation("SalesInvoiceCancelledBy")
+  customerPaymentsCreated   CustomerPayment[]     @relation("CustomerPaymentCreatedBy")
+  customerPaymentsPosted    CustomerPayment[]     @relation("CustomerPaymentPostedBy")
+  customerPaymentsCancelled CustomerPayment[]     @relation("CustomerPaymentCancelledBy")
+  salesReturnsCreated       SalesReturn[]         @relation("SalesReturnCreatedBy")
+  salesReturnsPosted        SalesReturn[]         @relation("SalesReturnPostedBy")
+  salesReturnsCancelled     SalesReturn[]         @relation("SalesReturnCancelledBy")
+  journalEntriesCreated     JournalEntry[]
+  expensesCreated           Expense[]             @relation("ExpenseCreatedBy")
+  expensesPosted            Expense[]             @relation("ExpensePostedBy")
+  expensesCancelled         Expense[]             @relation("ExpenseCancelledBy")
+  expensesReversed          Expense[]             @relation("ExpenseReversedBy")
+
+  @@index([companyId])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// INVENTORY
+//
+// InventoryBalance is the current snapshot (fast to read).
+// StockMovement is the immutable ledger (the audit history).
+// Both are written inside one transaction, so they can never disagree.
+//
+// Product deliberately has no stockQuantity: stock is per warehouse, and a single
+// mutable column on Product could not be audited or explained.
+// ---------------------------------------------------------------------------
+
+enum StockMovementType {
+  OPENING_STOCK
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT_IN
+  ADJUSTMENT_OUT
+}
+
+model InventoryBalance {
+  id          String @id @default(uuid())
+  companyId   String
+  productId   String
+  warehouseId String
+
+  quantity    Decimal @db.Decimal(18, 6) @default(0)
+  /// Moving weighted average. Unchanged by stock going out.
+  averageCost Decimal @db.Decimal(18, 4) @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  product   Product   @relation(fields: [productId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+
+  // One balance per product per warehouse per company. This constraint is also
+  // what makes concurrent first-insert safe: the loser retries.
+  @@unique([companyId, productId, warehouseId])
+  @@index([companyId])
+  @@index([companyId, warehouseId])
+  @@map("inventory_balances")
+}
+
+/// Append-only. Never updated or deleted: corrections are new compensating movements.
+model StockMovement {
+  id          String            @id @default(uuid())
+  companyId   String
+  productId   String
+  warehouseId String
+  type        StockMovementType
+
+  quantity  Decimal @db.Decimal(18, 6)
+  unitCost  Decimal @db.Decimal(18, 4)
+  totalCost Decimal @db.Decimal(18, 4)
+
+  // The balance before and after this movement, so history can be replayed
+  // and audited without recomputing from the start of time.
+  quantityBefore    Decimal @db.Decimal(18, 6)
+  quantityAfter     Decimal @db.Decimal(18, 6)
+  averageCostBefore Decimal @db.Decimal(18, 4)
+  averageCostAfter  Decimal @db.Decimal(18, 4)
+
+  /// What caused this movement, e.g. OPENING_STOCK, STOCK_ADJUSTMENT.
+  /// Later: PURCHASE, SALE, PURCHASE_RETURN, SALE_RETURN.
+  referenceType String?
+  /// Id of the source document. Intentionally NOT a foreign key: the tables it
+  /// will point at (purchases, sales) do not exist yet.
+  referenceId   String?
+
+  notes       String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  company   Company   @relation(fields: [companyId], references: [id])
+  product   Product   @relation(fields: [productId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  createdBy User      @relation(fields: [createdById], references: [id])
+
+  @@index([companyId, createdAt])
+  @@index([companyId, productId, warehouseId])
+  @@index([companyId, type])
+  @@map("stock_movements")
+}
+
+// ---------------------------------------------------------------------------
+// PURCHASES
+//
+// A purchase is a supplier bill. It is created as a DRAFT, which has NO effect on
+// inventory, and only affects stock when it is POSTED. That separation exists so a
+// future AI bill-reader can produce drafts for a human to verify, without any
+// document ever reaching inventory unreviewed.
+//
+// A POSTED purchase is a historical document: it is never edited. Corrections are
+// made by a future Purchase Return, not by rewriting history.
+// ---------------------------------------------------------------------------
+
+enum PurchaseStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum DiscountType {
+  NONE
+  PERCENTAGE
+  FIXED
+}
+
+/// Company-scoped document counters, e.g. PUR-2026-000001.
+/// A row is locked FOR UPDATE while a number is taken, so two concurrent requests
+/// can never receive the same number. Never COUNT(*) + 1.
+model DocumentSequence {
+  id           String @id @default(uuid())
+  companyId    String
+  /// e.g. "PURCHASE". Sales and other documents will add their own.
+  documentType String
+  year         Int
+  nextNumber   Int    @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, documentType, year])
+  @@map("document_sequences")
+}
+
+model Purchase {
+  id          String @id @default(uuid())
+  companyId   String
+  supplierId  String
+  warehouseId String
+
+  /// Our own document number, generated by us: PUR-2026-000001.
+  purchaseNumber String
+  /// The supplier's bill number, as printed on their invoice.
+  invoiceNumber  String
+
+  /// Business dates, not timestamps. Stored as DATE so they cannot shift by timezone.
+  invoiceDate DateTime  @db.Date
+  dueDate     DateTime? @db.Date
+
+  status PurchaseStatus @default(DRAFT)
+
+  subtotal      Decimal @db.Decimal(18, 4) @default(0)
+  discountTotal Decimal @db.Decimal(18, 4) @default(0)
+  taxTotal      Decimal @db.Decimal(18, 4) @default(0)
+  grandTotal    Decimal @db.Decimal(18, 4) @default(0)
+
+  /// Supplier name as it was when the bill was entered, so renaming a supplier
+  /// later does not rewrite historical documents.
+  supplierNameSnapshot String
+
+  // --- GST snapshot ---------------------------------------------------------
+  /// The supplier: they issued this bill.
+  sellerGstin            String?
+  sellerStateCode        String?
+  /// Us: we received the goods.
+  buyerGstin             String?
+  buyerStateCode         String?
+  /// The state whose tax applies. Decides CGST+SGST versus IGST.
+  placeOfSupplyStateCode String?
+  supplyType             SupplyType?
+
+  cgstTotal Decimal @db.Decimal(18, 4) @default(0)
+  sgstTotal Decimal @db.Decimal(18, 4) @default(0)
+  igstTotal Decimal @db.Decimal(18, 4) @default(0)
+  cessTotal Decimal @db.Decimal(18, 4) @default(0)
+
+  notes String?
+
+  createdById   String
+  postedById    String?
+  postedAt      DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company   @relation(fields: [companyId], references: [id])
+  supplier    Supplier  @relation(fields: [supplierId], references: [id])
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  createdBy   User      @relation("PurchaseCreatedBy", fields: [createdById], references: [id])
+  postedBy    User?     @relation("PurchasePostedBy", fields: [postedById], references: [id])
+  cancelledBy User?     @relation("PurchaseCancelledBy", fields: [cancelledById], references: [id])
+
+  items   PurchaseItem[]
+  returns PurchaseReturn[]
+  payable SupplierPayable?
+
+  // Our document number is unique per company.
+  @@unique([companyId, purchaseNumber])
+  // The supplier's invoice number is unique per supplier, not per company: two
+  // different suppliers may legitimately both issue "INV-001".
+  @@unique([companyId, supplierId, invoiceNumber])
+  @@index([companyId, status])
+  @@index([companyId, invoiceDate])
+  @@index([companyId, supplierId])
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id         String  @id @default(uuid())
+  purchaseId String
+  productId  String
+  taxId      String?
+  /// Display order, and what makes the line list stable.
+  lineNumber Int
+
+  quantity Decimal @db.Decimal(18, 6)
+  /// The price actually on the supplier bill, NOT Product.purchasePrice.
+  /// This is the cost that feeds the moving weighted average.
+  unitCost Decimal @db.Decimal(18, 4)
+
+  discountType   DiscountType @default(NONE)
+  discountValue  Decimal      @db.Decimal(18, 4) @default(0)
+  discountAmount Decimal      @db.Decimal(18, 4) @default(0)
+
+  taxableAmount Decimal @db.Decimal(18, 4) @default(0)
+  taxAmount     Decimal @db.Decimal(18, 4) @default(0)
+  lineTotal     Decimal @db.Decimal(18, 4) @default(0)
+
+  // Historical snapshots: an old bill must still print correctly after the
+  // product is renamed, the unit changed or the tax rate revised.
+  productNameSnapshot String
+  skuSnapshot         String?
+  unitNameSnapshot    String
+  taxNameSnapshot     String?
+  taxRateSnapshot     Decimal? @db.Decimal(5, 2)
+
+  // --- GST snapshot: frozen at draft time, never recomputed afterwards ------
+  /// The HSN/SAC this line was classified under when the document was written.
+  hsnCodeSnapshot      String?
+  taxTreatmentSnapshot TaxTreatment?
+  cgstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  sgstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  igstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  cessRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  /// The split of taxAmount. Exactly one of (cgst+sgst) or igst is non-zero.
+  cgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  sgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  igstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  cessAmount           Decimal       @db.Decimal(18, 4) @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchase Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id])
+  tax      Tax?     @relation(fields: [taxId], references: [id])
+
+  returnItems PurchaseReturnItem[]
+
+  // One line per product: duplicate lines would produce two confusing stock
+  // movements for the same product in the same document.
+  @@unique([purchaseId, productId])
+  @@index([purchaseId])
+  @@map("purchase_items")
+}
+
+// ---------------------------------------------------------------------------
+// PURCHASE RETURNS
+//
+// Goods sent back to a supplier. A return is its own document that REFERENCES a
+// posted purchase; it never edits it. Posting a return removes stock at the cost
+// recorded on the original purchase line, not at today's average.
+// ---------------------------------------------------------------------------
+
+enum PurchaseReturnStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+model PurchaseReturn {
+  id           String @id @default(uuid())
+  companyId    String
+  /// Our own document number, e.g. PR-2026-000001.
+  returnNumber String
+
+  /// The posted purchase being returned against.
+  purchaseId  String
+  /// Always copied from the purchase: stock must go back out of the warehouse
+  /// it came into. The client cannot choose it.
+  warehouseId String
+
+  /// A business date, not a timestamp.
+  returnDate DateTime @db.Date
+
+  status PurchaseReturnStatus @default(DRAFT)
+
+  reason String?
+  notes  String?
+
+  /// Sum of the line totals, valued at the original purchase cost. This is the
+  /// taxable value of the debit note.
+  taxableTotal Decimal @db.Decimal(18, 4) @default(0)
+  /// Input tax being handed back, at the ORIGINAL bill's frozen rates. Zero for
+  /// a company that has not enabled GST, which is why grandTotal is unchanged
+  /// for every document written before this phase.
+  taxTotal     Decimal @db.Decimal(18, 4) @default(0)
+  /// taxableTotal + taxTotal: what the supplier actually credits us.
+  grandTotal   Decimal @db.Decimal(18, 4) @default(0)
+
+  // --- GST snapshot ---------------------------------------------------------
+  /// The supplier we are returning to.
+  sellerGstin            String?
+  sellerStateCode        String?
+  /// Us: the goods left our warehouse.
+  buyerGstin             String?
+  buyerStateCode         String?
+  /// The state whose tax applies. Decides CGST+SGST versus IGST.
+  placeOfSupplyStateCode String?
+  supplyType             SupplyType?
+
+  cgstTotal Decimal @db.Decimal(18, 4) @default(0)
+  sgstTotal Decimal @db.Decimal(18, 4) @default(0)
+  igstTotal Decimal @db.Decimal(18, 4) @default(0)
+  cessTotal Decimal @db.Decimal(18, 4) @default(0)
+
+  createdById   String
+  postedById    String?
+  postedAt      DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company   @relation(fields: [companyId], references: [id])
+  purchase    Purchase  @relation(fields: [purchaseId], references: [id])
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  createdBy   User      @relation("PurchaseReturnCreatedBy", fields: [createdById], references: [id])
+  postedBy    User?     @relation("PurchaseReturnPostedBy", fields: [postedById], references: [id])
+  cancelledBy User?     @relation("PurchaseReturnCancelledBy", fields: [cancelledById], references: [id])
+
+  items PurchaseReturnItem[]
+
+  @@unique([companyId, returnNumber])
+  @@index([companyId, status])
+  @@index([companyId, purchaseId])
+  @@index([companyId, returnDate])
+  @@map("purchase_returns")
+}
+
+model PurchaseReturnItem {
+  id               String @id @default(uuid())
+  purchaseReturnId String
+  /// The exact purchase line being returned. This is what makes
+  /// "how much of this line is still returnable" answerable.
+  purchaseItemId   String
+  productId        String
+  lineNumber       Int
+
+  quantity        Decimal  @db.Decimal(18, 6)
+  /// Copied from the original purchase line at draft time and re-read at posting.
+  /// Never supplied by the client, never taken from the product master.
+  unitCost        Decimal  @db.Decimal(18, 4)
+  /// quantity * unitCost. Also the taxable value of this line.
+  lineTotal       Decimal  @db.Decimal(18, 4)
+  /// Input tax reversed on this line, at the original bill's frozen rates.
+  taxAmount       Decimal  @db.Decimal(18, 4) @default(0)
+  /// The headline rate the ORIGINAL purchase line carried.
+  taxRateSnapshot Decimal? @db.Decimal(5, 2)
+
+  productNameSnapshot String
+  skuSnapshot         String?
+
+  // --- GST snapshot: frozen at draft time, never recomputed afterwards ------
+  /// The HSN/SAC this line was classified under when the document was written.
+  hsnCodeSnapshot      String?
+  taxTreatmentSnapshot TaxTreatment?
+  cgstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  sgstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  igstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  cessRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  /// The split of taxAmount. Exactly one of (cgst+sgst) or igst is non-zero.
+  cgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  sgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  igstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  cessAmount           Decimal       @db.Decimal(18, 4) @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  purchaseReturn PurchaseReturn @relation(fields: [purchaseReturnId], references: [id], onDelete: Cascade)
+  purchaseItem   PurchaseItem   @relation(fields: [purchaseItemId], references: [id])
+  product        Product        @relation(fields: [productId], references: [id])
+
+  // One line per purchase item: two lines returning the same purchase line would
+  // make the remaining-quantity arithmetic ambiguous.
+  @@unique([purchaseReturnId, purchaseItemId])
+  @@index([purchaseReturnId])
+  @@index([purchaseItemId])
+  @@map("purchase_return_items")
+}
+
+// ---------------------------------------------------------------------------
+// SUPPLIER PAYABLES, LEDGER AND PAYMENTS
+//
+// An OPERATIONAL SUB-LEDGER, not double-entry bookkeeping. It answers
+// "what do we owe this supplier, and against which bills" - nothing more.
+// A general ledger, chart of accounts and journal entries are a later phase.
+//
+// Two structures, following the same split as inventory:
+//   SupplierLedgerEntry - immutable, append-only. The source of truth for a
+//                         supplier's BALANCE.
+//   SupplierPayable     - one row per posted purchase, maintained
+//                         transactionally. Tracks what is left on THAT bill,
+//                         which is what payment allocation needs.
+//
+// SIGN CONVENTION (standard accounting, from the supplier account's side):
+//   CREDIT increases what we owe   (a purchase)
+//   DEBIT  reduces what we owe     (a payment, or a purchase return)
+//   balance = sum(credit) - sum(debit);  positive means we owe the supplier.
+// ---------------------------------------------------------------------------
+
+enum SupplierPayableStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  /// Settled by purchase returns rather than by payment.
+  CREDITED
+}
+
+enum SupplierLedgerEntryType {
+  PURCHASE
+  PURCHASE_RETURN
+  PAYMENT
+  /// What was already owed to the supplier when the business started here.
+  OPENING_BALANCE
+}
+
+enum SupplierPaymentMethod {
+  CASH
+  BANK_TRANSFER
+  UPI
+  CHEQUE
+  OTHER
+}
+
+enum SupplierPaymentStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+/// One per POSTED purchase. Created inside the purchase posting transaction.
+model SupplierPayable {
+  id         String @id @default(uuid())
+  companyId  String
+  supplierId String
+  /// Unique: a purchase can raise exactly one payable, so a repeated post can
+  /// never create a second one even if a guard were missed.
+  ///
+  /// NULL for an OPENING BALANCE - money already owed to a supplier when the
+  /// business started using this system.
+  purchaseId String? @unique
+
+  originalAmount    Decimal @db.Decimal(18, 4)
+  /// Reduced by posted purchase returns against this purchase.
+  creditAmount      Decimal @db.Decimal(18, 4) @default(0)
+  /// Reduced by posted payment allocations.
+  paidAmount        Decimal @db.Decimal(18, 4) @default(0)
+  /// original - credit - paid, never below zero. What may still be allocated.
+  outstandingAmount Decimal @db.Decimal(18, 4)
+
+  dueDate DateTime?             @db.Date
+  status  SupplierPayableStatus @default(OPEN)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id])
+  supplier Supplier @relation(fields: [supplierId], references: [id])
+  purchase Purchase? @relation(fields: [purchaseId], references: [id])
+
+  ledgerEntries SupplierLedgerEntry[]
+  allocations   SupplierPaymentAllocation[]
+
+  @@index([companyId, supplierId, status])
+  @@index([companyId, dueDate])
+  @@index([companyId, supplierId, dueDate], map: "supplier_payables_company_supplier_due_idx")
+  @@map("supplier_payables")
+}
+
+/// Append-only. Never updated, never deleted - corrections are new entries.
+model SupplierLedgerEntry {
+  id         String                  @id @default(uuid())
+  companyId  String
+  supplierId String
+  entryType  SupplierLedgerEntryType
+
+  /// Business date of the source document.
+  entryDate DateTime @db.Date
+
+  /// Exactly one of these is non-zero. See the sign convention above.
+  debit  Decimal @db.Decimal(18, 4) @default(0)
+  credit Decimal @db.Decimal(18, 4) @default(0)
+
+  /// PURCHASE | PURCHASE_RETURN | SUPPLIER_PAYMENT, plus the document id.
+  referenceType String
+  referenceId   String
+  /// Set when the entry belongs to one specific bill.
+  payableId     String?
+
+  description String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  company   Company          @relation(fields: [companyId], references: [id])
+  supplier  Supplier         @relation(fields: [supplierId], references: [id])
+  payable   SupplierPayable? @relation(fields: [payableId], references: [id])
+  createdBy User             @relation(fields: [createdById], references: [id])
+
+  // One entry per source document. This is what makes double-posting incapable
+  // of double-counting a balance, at the database level.
+  @@unique([companyId, referenceType, referenceId])
+  @@index([companyId, supplierId, entryDate])
+  @@map("supplier_ledger_entries")
+}
+
+model SupplierPayment {
+  id            String @id @default(uuid())
+  companyId     String
+  supplierId    String
+  paymentNumber String
+
+  paymentDate DateTime @db.Date
+
+  amount            Decimal @db.Decimal(18, 4)
+  /// Split of `amount` once posted. Anything unallocated is an advance held
+  /// against the supplier.
+  allocatedAmount   Decimal @db.Decimal(18, 4) @default(0)
+  unallocatedAmount Decimal @db.Decimal(18, 4) @default(0)
+
+  paymentMethod   SupplierPaymentMethod
+  referenceNumber String?
+  notes           String?
+
+  status SupplierPaymentStatus @default(DRAFT)
+
+  createdById   String
+  postedById    String?
+  postedAt      DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  supplier    Supplier @relation(fields: [supplierId], references: [id])
+  createdBy   User     @relation("SupplierPaymentCreatedBy", fields: [createdById], references: [id])
+  postedBy    User?    @relation("SupplierPaymentPostedBy", fields: [postedById], references: [id])
+  cancelledBy User?    @relation("SupplierPaymentCancelledBy", fields: [cancelledById], references: [id])
+
+  allocations SupplierPaymentAllocation[]
+
+  @@unique([companyId, paymentNumber])
+  @@index([companyId, supplierId, status])
+  @@index([companyId, paymentDate])
+  @@map("supplier_payments")
+}
+
+model SupplierPaymentAllocation {
+  id                String @id @default(uuid())
+  supplierPaymentId String
+  supplierPayableId String
+
+  amount Decimal @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now())
+
+  payment SupplierPayment @relation(fields: [supplierPaymentId], references: [id], onDelete: Cascade)
+  payable SupplierPayable @relation(fields: [supplierPayableId], references: [id])
+
+  // One line per bill within a payment.
+  @@unique([supplierPaymentId, supplierPayableId])
+  @@index([supplierPayableId])
+  @@map("supplier_payment_allocations")
+}
+
+// ---------------------------------------------------------------------------
+// SALES AND CUSTOMER RECEIVABLES
+//
+// The mirror image of purchases and supplier payables:
+//   SalesInvoice  DRAFT -> POSTED   stock out, COGS frozen, receivable raised
+//   CustomerReceivable                what one invoice still owes us
+//   CustomerLedgerEntry               immutable; the source of truth for a balance
+//   CustomerPayment                   money in, allocated across invoices
+//
+// SIGN CONVENTION (from the customer account's side, standard accounting):
+//   DEBIT  increases what they owe us  (a sale)
+//   CREDIT reduces it                  (a payment, or a future sales return)
+//   balance = sum(debit) - sum(credit); positive means the customer owes us.
+// Note this is the opposite direction to the supplier ledger, which is correct:
+// a customer is a debtor, a supplier is a creditor.
+// ---------------------------------------------------------------------------
+
+enum SalesInvoiceStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum CustomerReceivableStatus {
+  OPEN
+  PARTIALLY_PAID
+  PAID
+  /// Reserved for sales returns, which are a later phase.
+  CREDITED
+  /// Reserved: a posted invoice cannot currently be cancelled.
+  CANCELLED
+}
+
+enum CustomerLedgerEntryType {
+  SALE
+  PAYMENT
+  /// Reserved for later phases.
+  SALES_RETURN
+  ADJUSTMENT
+  /// What the customer already owed when the business started using this system.
+  OPENING_BALANCE
+}
+
+enum CustomerPaymentMethod {
+  CASH
+  BANK
+  UPI
+  CHEQUE
+  OTHER
+}
+
+enum CustomerPaymentStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+model SalesInvoice {
+  id          String @id @default(uuid())
+  companyId   String
+  customerId  String
+  /// Where the stock leaves from. Required, so posting always knows.
+  warehouseId String
+
+  /// Our own document number, e.g. INV-2026-000001.
+  invoiceNumber String
+
+  invoiceDate DateTime  @db.Date
+  dueDate     DateTime? @db.Date
+
+  status SalesInvoiceStatus @default(DRAFT)
+
+  subtotal      Decimal @db.Decimal(18, 4) @default(0)
+  discountTotal Decimal @db.Decimal(18, 4) @default(0)
+  taxTotal      Decimal @db.Decimal(18, 4) @default(0)
+  grandTotal    Decimal @db.Decimal(18, 4) @default(0)
+  /// Sum of the frozen line COGS. Zero until the invoice is posted.
+  cogsTotal     Decimal @db.Decimal(18, 4) @default(0)
+
+  /// Customer name as it was when the invoice was raised.
+  customerNameSnapshot String
+
+  // --- GST snapshot ---------------------------------------------------------
+  /// Us: we raised this tax invoice.
+  sellerGstin            String?
+  sellerStateCode        String?
+  /// The customer being billed.
+  buyerGstin             String?
+  buyerStateCode         String?
+  /// The state whose tax applies. Decides CGST+SGST versus IGST.
+  placeOfSupplyStateCode String?
+  supplyType             SupplyType?
+
+  cgstTotal Decimal @db.Decimal(18, 4) @default(0)
+  sgstTotal Decimal @db.Decimal(18, 4) @default(0)
+  igstTotal Decimal @db.Decimal(18, 4) @default(0)
+  cessTotal Decimal @db.Decimal(18, 4) @default(0)
+
+  notes String?
+
+  /// Set when an ADMIN knowingly posted this invoice past the customer's credit
+  /// limit. An override is a DECISION, not a derived figure - nothing else in
+  /// the system records that someone chose to extend credit anyway, so it is
+  /// stored rather than inferred.
+  creditLimitOverride       Boolean @default(false)
+  creditLimitOverrideById   String?
+  creditLimitOverrideReason String?
+  /// What the customer already owed at the moment of the override, frozen. The
+  /// live balance moves; what was known when the call was made must not.
+  creditLimitOverrideExposure Decimal? @db.Decimal(18, 4)
+
+  createdById   String
+  postedById    String?
+  postedAt      DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company   @relation(fields: [companyId], references: [id])
+  customer    Customer  @relation(fields: [customerId], references: [id])
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+  createdBy   User      @relation("SalesInvoiceCreatedBy", fields: [createdById], references: [id])
+  postedBy    User?     @relation("SalesInvoicePostedBy", fields: [postedById], references: [id])
+  cancelledBy User?     @relation("SalesInvoiceCancelledBy", fields: [cancelledById], references: [id])
+  creditLimitOverrideBy User? @relation("SalesInvoiceCreditOverrideBy", fields: [creditLimitOverrideById], references: [id])
+
+  items      SalesInvoiceItem[]
+  receivable CustomerReceivable?
+  returns    SalesReturn[]
+
+  @@unique([companyId, invoiceNumber])
+  @@index([companyId, status])
+  @@index([companyId, invoiceDate])
+  @@index([companyId, customerId])
+  @@map("sales_invoices")
+}
+
+model SalesInvoiceItem {
+  id             String  @id @default(uuid())
+  salesInvoiceId String
+  productId      String
+  taxId          String?
+  lineNumber     Int
+
+  quantity  Decimal @db.Decimal(18, 6)
+  /// What the customer is charged. Unrelated to what the stock cost us.
+  unitPrice Decimal @db.Decimal(18, 4)
+
+  discountType   DiscountType @default(NONE)
+  discountValue  Decimal      @db.Decimal(18, 4) @default(0)
+  discountAmount Decimal      @db.Decimal(18, 4) @default(0)
+
+  taxableAmount Decimal @db.Decimal(18, 4) @default(0)
+  taxAmount     Decimal @db.Decimal(18, 4) @default(0)
+  lineTotal     Decimal @db.Decimal(18, 4) @default(0)
+
+  /// FROZEN AT POSTING: the moving average cost the stock actually left at.
+  /// Later purchases move the average; these numbers must never move with it.
+  cogsUnitCost Decimal @db.Decimal(18, 4) @default(0)
+  cogsAmount   Decimal @db.Decimal(18, 4) @default(0)
+
+  productNameSnapshot String
+  skuSnapshot         String?
+  unitNameSnapshot    String
+  taxNameSnapshot     String?
+  taxRateSnapshot     Decimal? @db.Decimal(5, 2)
+
+  // --- GST snapshot: frozen at draft time, never recomputed afterwards ------
+  /// The HSN/SAC this line was classified under when the document was written.
+  hsnCodeSnapshot      String?
+  taxTreatmentSnapshot TaxTreatment?
+  cgstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  sgstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  igstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  cessRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  /// The split of taxAmount. Exactly one of (cgst+sgst) or igst is non-zero.
+  cgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  sgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  igstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  cessAmount           Decimal       @db.Decimal(18, 4) @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesInvoice SalesInvoice @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
+  product      Product      @relation(fields: [productId], references: [id])
+  tax          Tax?         @relation(fields: [taxId], references: [id])
+
+  returnItems SalesReturnItem[]
+
+  // One line per product: two lines for the same product would produce two
+  // confusing stock movements in one document.
+  @@unique([salesInvoiceId, productId])
+  @@index([salesInvoiceId])
+  @@map("sales_invoice_items")
+}
+
+/// One per POSTED sales invoice. Created inside the posting transaction.
+model CustomerReceivable {
+  id             String @id @default(uuid())
+  companyId      String
+  customerId     String
+  /// Unique: an invoice can raise exactly one receivable, so a repeated post
+  /// can never create a second one even if a guard were missed.
+  ///
+  /// NULL for an OPENING BALANCE - money a customer already owed when the
+  /// business started using this system. There is no invoice behind it, and
+  /// inventing one would put a sale in the books that never happened. Postgres
+  /// allows many NULLs under a unique index, so the one-invoice-one-receivable
+  /// rule is untouched.
+  salesInvoiceId String? @unique
+
+  originalAmount    Decimal @db.Decimal(18, 4)
+  /// Reduced by posted sales returns against this invoice.
+  creditAmount      Decimal @db.Decimal(18, 4) @default(0)
+  paidAmount        Decimal @db.Decimal(18, 4) @default(0)
+  /// original - credit - paid, never below zero.
+  outstandingAmount Decimal @db.Decimal(18, 4)
+
+  dueDate DateTime?                @db.Date
+  status  CustomerReceivableStatus @default(OPEN)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id])
+  salesInvoice SalesInvoice? @relation(fields: [salesInvoiceId], references: [id])
+
+  ledgerEntries CustomerLedgerEntry[]
+  allocations   CustomerPaymentAllocation[]
+
+  @@index([companyId, customerId, status])
+  @@index([companyId, dueDate])
+  @@index([companyId, customerId, dueDate], map: "customer_receivables_company_customer_due_idx")
+  @@map("customer_receivables")
+}
+
+/// Append-only. Never updated, never deleted - corrections are new entries.
+model CustomerLedgerEntry {
+  id         String                  @id @default(uuid())
+  companyId  String
+  customerId String
+  entryType  CustomerLedgerEntryType
+
+  entryDate DateTime @db.Date
+
+  /// Exactly one is non-zero. Debit = they owe us more; credit = less.
+  debit  Decimal @db.Decimal(18, 4) @default(0)
+  credit Decimal @db.Decimal(18, 4) @default(0)
+
+  /// SALES_INVOICE | CUSTOMER_PAYMENT, plus the document id.
+  referenceType String
+  referenceId   String
+  receivableId  String?
+
+  description String?
+  createdById String
+  createdAt   DateTime @default(now())
+
+  company    Company             @relation(fields: [companyId], references: [id])
+  customer   Customer            @relation(fields: [customerId], references: [id])
+  receivable CustomerReceivable? @relation(fields: [receivableId], references: [id])
+  createdBy  User                @relation(fields: [createdById], references: [id])
+
+  // One entry per source document: double-posting cannot double-count a balance.
+  @@unique([companyId, referenceType, referenceId])
+  @@index([companyId, customerId, entryDate])
+  @@map("customer_ledger_entries")
+}
+
+model CustomerPayment {
+  id            String @id @default(uuid())
+  companyId     String
+  customerId    String
+  paymentNumber String
+
+  paymentDate DateTime @db.Date
+
+  amount            Decimal @db.Decimal(18, 4)
+  /// Split of `amount` once posted. Anything unallocated is customer credit.
+  allocatedAmount   Decimal @db.Decimal(18, 4) @default(0)
+  unallocatedAmount Decimal @db.Decimal(18, 4) @default(0)
+
+  paymentMethod   CustomerPaymentMethod
+  referenceNumber String?
+  notes           String?
+
+  status CustomerPaymentStatus @default(DRAFT)
+
+  createdById   String
+  postedById    String?
+  postedAt      DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  customer    Customer @relation(fields: [customerId], references: [id])
+  createdBy   User     @relation("CustomerPaymentCreatedBy", fields: [createdById], references: [id])
+  postedBy    User?    @relation("CustomerPaymentPostedBy", fields: [postedById], references: [id])
+  cancelledBy User?    @relation("CustomerPaymentCancelledBy", fields: [cancelledById], references: [id])
+
+  allocations CustomerPaymentAllocation[]
+
+  @@unique([companyId, paymentNumber])
+  @@index([companyId, customerId, status])
+  @@index([companyId, paymentDate])
+  @@map("customer_payments")
+}
+
+model CustomerPaymentAllocation {
+  id                   String @id @default(uuid())
+  customerPaymentId    String
+  customerReceivableId String
+
+  amount Decimal @db.Decimal(18, 4)
+
+  createdAt DateTime @default(now())
+
+  payment    CustomerPayment    @relation(fields: [customerPaymentId], references: [id], onDelete: Cascade)
+  receivable CustomerReceivable @relation(fields: [customerReceivableId], references: [id])
+
+  // One line per invoice within a payment.
+  @@unique([customerPaymentId, customerReceivableId])
+  @@index([customerReceivableId])
+  @@map("customer_payment_allocations")
+}
+
+// ---------------------------------------------------------------------------
+// SALES RETURNS / CREDIT NOTES
+//
+// The mirror of purchase returns. Goods coming back from a customer.
+// A return REFERENCES a posted sales invoice and never modifies it.
+//
+// Stock re-enters at the COGS cost FROZEN on the original invoice line, not at
+// today's moving average - so returning goods restores the valuation the sale
+// removed.
+// ---------------------------------------------------------------------------
+
+enum SalesReturnStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+model SalesReturn {
+  id           String @id @default(uuid())
+  companyId    String
+  /// Our own document number, e.g. SR-2026-000001.
+  returnNumber String
+
+  /// The posted invoice being returned against.
+  salesInvoiceId String
+  customerId     String
+  /// Always copied from the invoice: stock goes back to where it left from.
+  warehouseId    String
+
+  returnDate DateTime @db.Date
+
+  status SalesReturnStatus @default(DRAFT)
+
+  reason String?
+  notes  String?
+
+  // What the customer is credited, recomputed from the original invoice lines.
+  subtotal      Decimal @db.Decimal(18, 4) @default(0)
+  discountTotal Decimal @db.Decimal(18, 4) @default(0)
+  taxTotal      Decimal @db.Decimal(18, 4) @default(0)
+  grandTotal    Decimal @db.Decimal(18, 4) @default(0)
+  /// Sum of the frozen COGS put back into stock. Zero until posted.
+  cogsTotal     Decimal @db.Decimal(18, 4) @default(0)
+
+  customerNameSnapshot String
+
+  // --- GST snapshot ---------------------------------------------------------
+  /// Us: we issued this credit note.
+  sellerGstin            String?
+  sellerStateCode        String?
+  /// The customer being credited.
+  buyerGstin             String?
+  buyerStateCode         String?
+  /// The state whose tax applies. Decides CGST+SGST versus IGST.
+  placeOfSupplyStateCode String?
+  supplyType             SupplyType?
+
+  cgstTotal Decimal @db.Decimal(18, 4) @default(0)
+  sgstTotal Decimal @db.Decimal(18, 4) @default(0)
+  igstTotal Decimal @db.Decimal(18, 4) @default(0)
+  cessTotal Decimal @db.Decimal(18, 4) @default(0)
+
+  createdById   String
+  postedById    String?
+  postedAt      DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company      Company      @relation(fields: [companyId], references: [id])
+  salesInvoice SalesInvoice @relation(fields: [salesInvoiceId], references: [id])
+  customer     Customer     @relation(fields: [customerId], references: [id])
+  warehouse    Warehouse    @relation(fields: [warehouseId], references: [id])
+  createdBy    User         @relation("SalesReturnCreatedBy", fields: [createdById], references: [id])
+  postedBy     User?        @relation("SalesReturnPostedBy", fields: [postedById], references: [id])
+  cancelledBy  User?        @relation("SalesReturnCancelledBy", fields: [cancelledById], references: [id])
+
+  items SalesReturnItem[]
+
+  @@unique([companyId, returnNumber])
+  @@index([companyId, status])
+  @@index([companyId, salesInvoiceId])
+  @@index([companyId, returnDate])
+  @@map("sales_returns")
+}
+
+model SalesReturnItem {
+  id                 String @id @default(uuid())
+  salesReturnId      String
+  /// The exact invoice line being returned. This is what makes
+  /// "how much of this line is still returnable" answerable.
+  salesInvoiceItemId String
+  productId          String
+  lineNumber         Int
+
+  quantity  Decimal @db.Decimal(18, 6)
+  /// Copied from the original invoice line: what the customer was charged.
+  unitPrice Decimal @db.Decimal(18, 4)
+
+  /// Prorated share of the original line's discount.
+  discountAmount Decimal @db.Decimal(18, 4) @default(0)
+  taxableAmount  Decimal @db.Decimal(18, 4) @default(0)
+  taxAmount      Decimal @db.Decimal(18, 4) @default(0)
+  lineTotal      Decimal @db.Decimal(18, 4) @default(0)
+
+  /// The COGS cost frozen on the original sale. Stock re-enters at THIS cost,
+  /// never at today's moving average.
+  cogsUnitCost Decimal @db.Decimal(18, 4) @default(0)
+  cogsAmount   Decimal @db.Decimal(18, 4) @default(0)
+
+  productNameSnapshot String
+  skuSnapshot         String?
+  taxNameSnapshot     String?
+  taxRateSnapshot     Decimal? @db.Decimal(5, 2)
+
+  // --- GST snapshot: frozen at draft time, never recomputed afterwards ------
+  /// The HSN/SAC this line was classified under when the document was written.
+  hsnCodeSnapshot      String?
+  taxTreatmentSnapshot TaxTreatment?
+  cgstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  sgstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  igstRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  cessRateSnapshot     Decimal?      @db.Decimal(5, 2)
+  /// The split of taxAmount. Exactly one of (cgst+sgst) or igst is non-zero.
+  cgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  sgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  igstAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  cessAmount           Decimal       @db.Decimal(18, 4) @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  salesReturn      SalesReturn      @relation(fields: [salesReturnId], references: [id], onDelete: Cascade)
+  salesInvoiceItem SalesInvoiceItem @relation(fields: [salesInvoiceItemId], references: [id])
+  product          Product          @relation(fields: [productId], references: [id])
+
+  // One line per invoice line: two lines returning the same invoice line would
+  // make the remaining-quantity arithmetic ambiguous.
+  @@unique([salesReturnId, salesInvoiceItemId])
+  @@index([salesReturnId])
+  @@index([salesInvoiceItemId])
+  @@map("sales_return_items")
+}
+
+// ---------------------------------------------------------------------------
+// GENERAL LEDGER AND CHART OF ACCOUNTS
+//
+// Everything above this line is an OPERATIONAL sub-ledger: what one supplier is
+// owed, what is left on one invoice, what is in one warehouse. This section is
+// the double-entry GENERAL LEDGER those sub-ledgers roll up into.
+//
+// SIGN CONVENTION (standard double entry, no exceptions anywhere in the code):
+//   ASSET, EXPENSE              debit increases the balance
+//   LIABILITY, EQUITY, REVENUE  credit increases the balance
+//   balance(ASSET|EXPENSE)      = sum(debit) - sum(credit)
+//   balance(others)             = sum(credit) - sum(debit)
+//
+// THE JOURNAL IS THE SOURCE OF TRUTH. Accounts deliberately have NO balance
+// column: a balance is always derived from JournalLine, so it can never drift
+// away from the entries that explain it.
+//
+// A journal entry is written in the SAME transaction as the business document
+// that caused it, and is immutable once posted. Corrections are reversing
+// entries, never edits.
+// ---------------------------------------------------------------------------
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum JournalEntryStatus {
+  DRAFT
+  POSTED
+}
+
+/// One node of a company's chart of accounts.
+///
+/// `code` is the stable identity: system accounts are resolved by
+/// (companyId, code), never by a hard-coded id, and a code can never be changed
+/// once the account exists.
+model Account {
+  id        String      @id @default(uuid())
+  companyId String
+  code      String
+  name      String
+  type      AccountType
+  /// Optional grouping parent. Must belong to the same company, and the chain
+  /// may never form a cycle - both enforced in the service.
+  parentId  String?
+  /// Created automatically for every company. Cannot be deleted or deactivated,
+  /// and its code and type can never change.
+  isSystem  Boolean     @default(false)
+  isActive  Boolean     @default(true)
+
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id])
+  parent   Account?  @relation("AccountParent", fields: [parentId], references: [id])
+  children Account[] @relation("AccountParent")
+
+  journalLines      JournalLine[]
+  /// Expenses filed under this account as their category.
+  expenseCategories Expense[]     @relation("ExpenseCategoryAccount")
+  /// Expenses paid out of this account.
+  expensePayments   Expense[]     @relation("ExpensePaymentAccount")
+
+  // Codes are unique per company, never globally: two companies may both use 1000.
+  @@unique([companyId, code])
+  @@index([companyId, type])
+  @@index([companyId, parentId])
+  @@map("accounts")
+}
+
+/// Append-only. A posted entry is never updated and never deleted.
+enum AccountingPeriodStatus {
+  OPEN
+  CLOSED
+}
+
+/// An accounting period a company may close.
+///
+/// Closing does NOT rewrite history. It refuses NEW postings whose business date
+/// falls inside the range - checked at the single point every posting goes
+/// through, so no route can bypass it.
+///
+/// Periods are opt-in. A company with none behaves exactly as it did before they
+/// existed; see CompanySettings.requireOpenPeriod.
+model AccountingPeriod {
+  id        String @id @default(uuid())
+  companyId String
+  /// A human label, e.g. "March 2026" or "FY 2026-27 Q1".
+  name      String
+
+  /// Inclusive bounds, stored as UTC-midnight DATE columns like every other
+  /// business date in this system.
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+
+  status AccountingPeriodStatus @default(OPEN)
+
+  createdById String
+  closedById  String?
+  closedAt    DateTime?
+  /// Why the period was reopened, if it ever was. Reopening is deliberate and
+  /// attributed rather than silent.
+  reopenedById String?
+  reopenedAt   DateTime?
+  reopenReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company @relation(fields: [companyId], references: [id])
+  createdBy  User    @relation("AccountingPeriodCreatedBy", fields: [createdById], references: [id])
+  closedBy   User?   @relation("AccountingPeriodClosedBy", fields: [closedById], references: [id])
+  reopenedBy User?   @relation("AccountingPeriodReopenedBy", fields: [reopenedById], references: [id])
+
+  // A company cannot have two periods with the same name, and the service
+  // refuses overlapping ranges.
+  @@unique([companyId, name])
+  @@index([companyId, startDate, endDate])
+  @@index([companyId, status])
+  @@map("accounting_periods")
+}
+
+// ===========================================================================
+// SaaS: plans, subscriptions and the money the platform collects.
+//
+// NONE OF THIS TOUCHES A SHOP'S BOOKS. A shop paying for the software is not a
+// transaction in that shop's accounting - it is the platform's revenue. Mixing
+// the two would put a cost in the shop's profit and loss that it never agreed
+// to, so these tables stand entirely apart from the general ledger.
+// ===========================================================================
+
+enum DurationUnit {
+  DAY
+  MONTH
+  YEAR
+}
+
+/// A plan the platform sells, e.g. "3 Months" at 300. Price and duration are
+/// configuration, never hard-coded in a screen.
+model SubscriptionPlan {
+  id            String       @id @default(uuid())
+  name          String
+  description   String?
+  durationValue Int
+  durationUnit  DurationUnit @default(MONTH)
+  price         Decimal      @db.Decimal(18, 4)
+  currency      String       @default("INR")
+
+  /// A plan is deactivated, never deleted: subscriptions reference it and
+  /// deleting one would break the record of what a shop actually bought.
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+
+  @@unique([name])
+  @@index([isActive])
+  @@map("subscription_plans")
+}
+
+/// How a subscription came to exist. SALE is a normal sale by a rep or admin;
+/// ADMIN_GRANT is a manual recharge or a free grant made by a platform admin.
+enum SubscriptionOrigin {
+  SALE
+  ADMIN_GRANT
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+/// One period a shop has bought.
+///
+/// A renewal creates a NEW row rather than moving an old one, so the history of
+/// what a shop paid and when is never overwritten.
+model Subscription {
+  id        String @id @default(uuid())
+  companyId String
+  planId    String
+
+  /// The plan's terms AT THE MOMENT OF SALE. The plan's price may change next
+  /// month; what this shop agreed to must not. Same reasoning as the name and
+  /// price snapshots on every document in the accounting modules.
+  planNameSnapshot     String
+  priceSnapshot        Decimal      @db.Decimal(18, 4)
+  currencySnapshot     String       @default("INR")
+  durationValueSnapshot Int
+  durationUnitSnapshot  DurationUnit
+
+  startDate DateTime           @db.Date
+  endDate   DateTime           @db.Date
+  status    SubscriptionStatus @default(PENDING)
+
+  /// Set when this subscription renewed an earlier one, so a shop's history
+  /// reads as a chain rather than a pile.
+  previousSubscriptionId String?
+
+  /// SALE, or ADMIN_GRANT for a manual recharge / free grant.
+  origin      SubscriptionOrigin @default(SALE)
+  /// Why an admin granted it. Required by the service whenever origin is
+  /// ADMIN_GRANT - this is the audit trail for a subscription nobody paid for.
+  grantReason String?
+
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company   Company          @relation(fields: [companyId], references: [id])
+  plan      SubscriptionPlan @relation(fields: [planId], references: [id])
+  createdBy User             @relation("SubscriptionCreatedBy", fields: [createdById], references: [id])
+
+  payments SubscriptionPayment[]
+
+  @@index([companyId, status])
+  @@index([status, endDate])
+  @@index([endDate])
+  @@index([companyId, origin])
+  @@map("subscriptions")
+}
+
+enum SubscriptionPaymentMethod {
+  CASH
+  UPI
+  BANK
+  CARD
+  CHEQUE
+  /// Collected offline and recorded afterwards by an admin.
+  MANUAL
+  /// No money changed hands - a promotional or goodwill subscription.
+  ADMIN_GRANT
+  OTHER
+}
+
+/// Money the platform collected for a subscription, usually in cash by a sales
+/// rep standing in the shop.
+model SubscriptionPayment {
+  id             String @id @default(uuid())
+  subscriptionId String
+
+  amount    Decimal                   @db.Decimal(18, 4)
+  method    SubscriptionPaymentMethod @default(CASH)
+  reference String?
+  paidAt    DateTime                  @db.Date
+  notes     String?
+
+  /// The sales staff member who took the money.
+  collectedById String
+  createdAt     DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+  collectedBy  User         @relation("SubscriptionPaymentCollectedBy", fields: [collectedById], references: [id])
+
+  @@index([subscriptionId])
+  @@index([collectedById, paidAt])
+  @@map("subscription_payments")
+}
+
+// ===========================================================================
+// Bill import: the AI data-entry layer.
+//
+// A Bill is NOT an accounting document. It is a staging record for an uploaded
+// image or PDF, what the extractor made of it, and what the user corrected. Only
+// when the user confirms does it call the EXISTING purchase or sales service,
+// which does all the real work - stock, sub-ledger, journal. The id of the
+// document that service created is written back here, and that is the whole
+// relationship between the two.
+// ===========================================================================
+
+enum BillDirection {
+  /// Stock coming in: goes through the existing PURCHASE flow.
+  IN
+  /// Stock going out: goes through the existing SALES flow.
+  OUT
+}
+
+enum BillStatus {
+  UPLOADED
+  PROCESSING
+  REVIEW
+  POSTED
+  FAILED
+  CANCELLED
+}
+
+model Bill {
+  id        String @id @default(uuid())
+  companyId String
+
+  direction BillDirection
+  status    BillStatus    @default(UPLOADED)
+
+  /// The stored file. `storageKey` is an opaque, tenant-scoped key - never a
+  /// path the browser supplies, and never returned as a filesystem location.
+  originalFilename String
+  mimeType         String
+  fileSize         Int
+  storageKey       String @unique
+
+  /// Exactly what the extractor returned, kept verbatim for audit even after
+  /// the user corrects it. Never posted from directly.
+  extraction       Json?
+  extractionModel  String?
+  extractedAt      DateTime?
+  /// Why extraction failed, when it did. The user then types the bill by hand.
+  extractionError  String?
+
+  /// What the user confirmed, after any corrections. This is what gets posted.
+  reviewedData Json?
+
+  /// The accounting document this became. sourceType is PURCHASE or
+  /// SALES_INVOICE; sourceId is that document's id. Deliberately not a foreign
+  /// key: one column cannot point at two tables, which is the same convention
+  /// JournalEntry already uses.
+  postedSourceType String?
+  postedSourceId   String?
+  postedAt         DateTime?
+  postedById       String?
+
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  uploadedById String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company    Company @relation(fields: [companyId], references: [id])
+  uploadedBy User    @relation("BillUploadedBy", fields: [uploadedById], references: [id])
+  postedBy   User?   @relation("BillPostedBy", fields: [postedById], references: [id])
+
+  // One bill can produce at most one accounting document. This is what makes
+  // double-posting impossible at the database, not merely guarded in code.
+  @@unique([companyId, postedSourceType, postedSourceId])
+  @@index([companyId, status])
+  @@index([companyId, createdAt])
+  @@map("bills")
+}
+
+
+model JournalEntry {
+  id            String @id @default(uuid())
+  companyId     String
+  /// Our own document number, e.g. JV-2026-000001.
+  journalNumber String
+
+  /// The business date of the source document, not the time it was recorded.
+  entryDate   DateTime @db.Date
+  description String?
+
+  /// Why this entry exists: PURCHASE | PURCHASE_RETURN | SUPPLIER_PAYMENT |
+  /// SALES_INVOICE | SALES_RETURN | CUSTOMER_PAYMENT | REVERSAL, plus the id of
+  /// that document. Intentionally not a foreign key: one column cannot point at
+  /// six different tables.
+  sourceType String
+  sourceId   String
+
+  status JournalEntryStatus @default(POSTED)
+
+  /// Sum of the lines, stored once at posting so a listing does not have to
+  /// re-aggregate. Immutable, like the lines themselves.
+  totalDebit  Decimal @db.Decimal(18, 4) @default(0)
+  totalCredit Decimal @db.Decimal(18, 4) @default(0)
+
+  /// Set on a reversing entry, pointing at the entry it reverses.
+  reversalOfId String?
+
+  createdById String
+  postedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company    Company        @relation(fields: [companyId], references: [id])
+  createdBy  User           @relation(fields: [createdById], references: [id])
+  reversalOf JournalEntry?  @relation("JournalReversal", fields: [reversalOfId], references: [id])
+  reversedBy JournalEntry[] @relation("JournalReversal")
+
+  lines JournalLine[]
+
+  @@unique([companyId, journalNumber])
+  // ONE entry per source document. This is what makes a second posting incapable
+  // of double-counting the ledger, at the database level rather than in code.
+  // It is also what makes a reversal idempotent: a reversal is stored as
+  // sourceType REVERSAL with the original entry's id.
+  @@unique([companyId, sourceType, sourceId])
+  @@index([companyId, entryDate])
+  @@index([companyId, status])
+  @@map("journal_entries")
+}
+
+/// One side of one entry. Exactly one of debit/credit is non-zero, and both are
+/// non-negative - enforced by CHECK constraints in the migration, not only here.
+model JournalLine {
+  id             String @id @default(uuid())
+  journalEntryId String
+  /// Denormalised from the entry so every ledger read is company scoped without
+  /// a join. Immutable, exactly like the entry.
+  companyId      String
+  accountId      String
+  lineNumber     Int
+
+  description String?
+
+  debit  Decimal @db.Decimal(18, 4) @default(0)
+  credit Decimal @db.Decimal(18, 4) @default(0)
+
+  /// Denormalised from the entry so account ledgers and the trial balance filter
+  /// by date without joining. Never changes: the entry's date never changes.
+  entryDate DateTime @db.Date
+
+  createdAt DateTime @default(now())
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  company      Company      @relation(fields: [companyId], references: [id])
+  account      Account      @relation(fields: [accountId], references: [id])
+
+  @@index([journalEntryId])
+  @@index([companyId, accountId, entryDate])
+  @@index([companyId, entryDate])
+  @@map("journal_lines")
+}
+
+// ---------------------------------------------------------------------------
+// GST / TAX COMPLIANCE
+//
+// Indian GST needs three things the earlier phases deliberately did not model:
+//   1. WHO the parties are, for tax purposes - GSTIN and state, on both sides.
+//   2. WHERE the supply happens - the place of supply, which decides whether
+//      one tax (IGST) or two (CGST + SGST) apply.
+//   3. WHAT is being supplied - an HSN/SAC classification and a tax treatment.
+//
+// GST IS OPT-IN PER COMPANY. A company becomes GST-aware the moment it has a
+// `stateCode`; until then tax behaves exactly as it did before this phase - a
+// single rate posted to the aggregate tax accounts. This is what lets an
+// existing installation upgrade without its history changing meaning.
+//
+// EVERY TAX FIGURE IS FROZEN ONTO THE DOCUMENT. Rates, the split, the HSN code,
+// the two states and the place of supply are all snapshotted on the line, so a
+// posted invoice reproduces its own tax calculation forever - even after the
+// tax master, the customer's state or the company's own registration changes.
+// ---------------------------------------------------------------------------
+
+enum GstRegistrationType {
+  REGULAR
+  COMPOSITION
+  UNREGISTERED
+  SEZ
+  OTHER
+}
+
+/// Decided by comparing the seller's state with the place of supply. Never both.
+enum SupplyType {
+  /// Seller and place of supply in the same state -> CGST + SGST.
+  INTRA_STATE
+  /// Different states -> IGST only.
+  INTER_STATE
+}
+
+/// Why a line carries the tax it does. A zero-rate line is NOT automatically
+/// exempt: "taxable at 0%" and "exempt" are different things to a GST return,
+/// so the treatment is always explicit rather than inferred from the rate.
+enum TaxTreatment {
+  TAXABLE
+  EXEMPT
+  NIL_RATED
+  ZERO_RATED
+}
+
+enum TaxClassificationKind {
+  /// Harmonised System of Nomenclature - goods.
+  HSN
+  /// Service Accounting Code - services.
+  SAC
+}
+
+/// One HSN or SAC code a company actually uses. Deliberately NOT the full
+/// government catalogue: a business uses a handful of codes, and shipping tens
+/// of thousands of rows would be a liability rather than a feature.
+model TaxClassification {
+  id           String                @id @default(uuid())
+  companyId    String
+  kind         TaxClassificationKind @default(HSN)
+  /// 4, 6 or 8 digits for HSN; 6 for SAC. Unique per company.
+  code         String
+  description  String?
+  /// The rate normally applied to this classification. A document line still
+  /// snapshots its own rates - this is only a default when one is picked.
+  defaultTaxId String?
+  isActive     Boolean               @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company    Company   @relation(fields: [companyId], references: [id])
+  defaultTax Tax?      @relation(fields: [defaultTaxId], references: [id])
+  products   Product[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([companyId, isActive])
+  @@map("tax_classifications")
+}
+
+// ---------------------------------------------------------------------------
+// EXPENSES
+//
+// The operating costs a business actually pays: rent, electricity, salaries,
+// transport, bank charges. Until this existed, the profit and loss could show
+// gross profit but never a true net profit, because there was no way to record
+// what running the business cost.
+//
+// A CATEGORY IS AN ACCOUNT.
+//   `expenseAccountId` points at an EXPENSE account in the company's own chart.
+//   There is no separate category table and no name-matching anywhere in the
+//   posting logic: choosing "Rent" means choosing account 5210, and a business
+//   that wants its own category creates its own EXPENSE account. That is what
+//   keeps the expense report, the P&L and the general ledger the same number.
+//
+// PAID EXPENSES ONLY.
+//   An expense is paid from Cash or Bank when it is posted. Expenses bought on
+//   credit are NOT supported: SupplierPayable.purchaseId is a required unique
+//   foreign key to a purchase, so a payable cannot exist without one. See the
+//   limitation in docs/architecture.md.
+//
+// GST plays no part in an expense. A shop with no registration records rent the
+// same way a registered company does.
+// ---------------------------------------------------------------------------
+
+enum ExpenseStatus {
+  DRAFT
+  POSTED
+  /// A draft that was abandoned. Never had an accounting effect.
+  CANCELLED
+  /// A posted expense undone by an explicit reversing journal entry.
+  /// The original posting is left exactly as it was.
+  REVERSED
+}
+
+enum ExpensePaymentMode {
+  CASH
+  BANK
+}
+
+model Expense {
+  id            String @id @default(uuid())
+  companyId     String
+  /// Our own document number, e.g. EXP-2026-000001.
+  expenseNumber String
+
+  /// A business date, not a timestamp.
+  expenseDate DateTime @db.Date
+
+  /// The category. An EXPENSE account in this company's chart of accounts -
+  /// never a free-text name, so the report and the ledger cannot disagree.
+  expenseAccountId     String
+  /// The category name as it was when the expense was recorded, so renaming an
+  /// account later does not rewrite history.
+  categoryNameSnapshot String
+
+  description String?
+
+  amount Decimal @db.Decimal(18, 4)
+
+  paymentMode                ExpensePaymentMode
+  /// The asset account the money left. Defaults to the system Cash or Bank
+  /// account for the payment mode; a business with a second bank account may
+  /// name it explicitly.
+  paymentAccountId           String
+  paymentAccountNameSnapshot String
+
+  /// Who was paid. Optional and purely informational: an expense raises no
+  /// payable, so this never affects a supplier balance.
+  supplierId           String?
+  supplierNameSnapshot String?
+
+  referenceNumber String?
+  notes           String?
+
+  status ExpenseStatus @default(DRAFT)
+
+  createdById   String
+  postedById    String?
+  postedAt      DateTime?
+  cancelledById String?
+  cancelledAt   DateTime?
+  reversedById  String?
+  reversedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company        Company   @relation(fields: [companyId], references: [id])
+  expenseAccount Account   @relation("ExpenseCategoryAccount", fields: [expenseAccountId], references: [id])
+  paymentAccount Account   @relation("ExpensePaymentAccount", fields: [paymentAccountId], references: [id])
+  supplier       Supplier? @relation(fields: [supplierId], references: [id])
+  createdBy      User      @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+  postedBy       User?     @relation("ExpensePostedBy", fields: [postedById], references: [id])
+  cancelledBy    User?     @relation("ExpenseCancelledBy", fields: [cancelledById], references: [id])
+  reversedBy     User?     @relation("ExpenseReversedBy", fields: [reversedById], references: [id])
+
+  @@unique([companyId, expenseNumber])
+  @@index([companyId, status])
+  @@index([companyId, expenseDate])
+  @@index([companyId, expenseAccountId])
+  @@index([companyId, supplierId])
+  @@map("expenses")
+}

@@ -1,0 +1,17 @@
+{
+  "name": "byapar-clone",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Business Management SaaS - Express/Prisma backend, Admin Web and Business Web (separate Next.js apps)",
+  "scripts": {
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:admin": "npm run dev --prefix frontend",
+    "dev:business": "npm run dev --prefix business-web",
+    "test": "npm run test:backend && npm run test:admin && npm run test:business",
+    "test:backend": "npm test --prefix backend",
+    "test:admin": "npm test --prefix frontend",
+    "test:business": "npm test --prefix business-web",
+    "build:admin": "npm run build --prefix frontend",
+    "build:business": "npm run build --prefix business-web"
+  }
+}
