@@ -1,6 +1,9 @@
 import * as productService from '../products/product.service.js';
+import * as productRepository from '../products/product.repository.js';
 import * as supplierService from '../suppliers/supplier.service.js';
+import * as supplierRepository from '../suppliers/supplier.repository.js';
 import * as customerService from '../customers/customer.service.js';
+import * as customerRepository from '../customers/customer.repository.js';
 import * as categoryService from '../categories/category.service.js';
 import * as categoryRepository from '../categories/category.repository.js';
 import * as unitRepository from '../units/unit.repository.js';
@@ -181,16 +184,33 @@ export async function resolveWarehouseId(currentUser, newWarehouse) {
  * @returns {Promise<string>} the new supplier's or customer's id
  */
 export async function createPartyFromBill(currentUser, direction, party) {
+  const { companyId } = currentUser;
   const service = direction === 'IN' ? supplierService : customerService;
+  const repository = direction === 'IN' ? supplierRepository : customerRepository;
 
-  const created = await service.create(currentUser, {
-    name: party.name,
-    ...(party.phone ? { phone: party.phone } : {}),
-    ...(party.gstin ? { gstin: party.gstin } : {}),
-    ...(party.address ? { address: party.address } : {}),
-  });
+  // ALREADY THERE IS A SUCCESS, NOT A CONFLICT.
+  //
+  // A confirm that created this party and then failed at posting - a closed
+  // period, a timeout - leaves it behind. Refusing the retry with "already
+  // exists" would strand the shop with a bill it can never record, so the
+  // existing record is used, which is what the shop asked for in the first place.
+  const existing = await repository.findByNameAndCompany(party.name, companyId);
+  if (existing) return existing.id;
 
-  return created.id;
+  try {
+    const created = await service.create(currentUser, {
+      name: party.name,
+      ...(party.phone ? { phone: party.phone } : {}),
+      ...(party.gstin ? { gstin: party.gstin } : {}),
+      ...(party.address ? { address: party.address } : {}),
+    });
+    return created.id;
+  } catch (error) {
+    // Lost a race, or the name differs only by case. Use whatever is there now.
+    const raced = await repository.findByNameAndCompany(party.name, companyId);
+    if (raced) return raced.id;
+    throw error;
+  }
 }
 
 /**
@@ -206,17 +226,35 @@ export async function createProductsFromBill(currentUser, products = []) {
   const categoryId = await resolveCategoryId(currentUser);
 
   for (const product of products) {
+    // Same rule as the party: one that already exists is used, not refused.
+    const existing = await productRepository.findByNameAndCompany(
+      product.name,
+      currentUser.companyId,
+    );
+    if (existing) {
+      created.set(product.index, existing.id);
+      continue;
+    }
+
     const unitId = await resolveUnitId(currentUser.companyId, product.unit);
 
-    const record = await productService.create(currentUser, {
-      name: product.name,
-      categoryId,
-      unitId,
-      // The price off the bill is a starting point the shop can correct later.
-      ...(product.price ? { purchasePrice: product.price } : {}),
-    });
-
-    created.set(product.index, record.id);
+    try {
+      const record = await productService.create(currentUser, {
+        name: product.name,
+        categoryId,
+        unitId,
+        // The price off the bill is a starting point the shop can correct later.
+        ...(product.price ? { purchasePrice: product.price } : {}),
+      });
+      created.set(product.index, record.id);
+    } catch (error) {
+      const raced = await productRepository.findByNameAndCompany(
+        product.name,
+        currentUser.companyId,
+      );
+      if (!raced) throw error;
+      created.set(product.index, raced.id);
+    }
   }
 
   return created;

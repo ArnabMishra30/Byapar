@@ -98,6 +98,8 @@ export interface Bill {
     postedAt: string;
     postedBy: { id: string; name: string } | null;
   } | null;
+  /** A draft an interrupted confirm left behind, waiting to be finished. */
+  draft: { sourceType: "PURCHASE" | "SALES_INVOICE"; sourceId: string } | null;
   cancelledAt: string | null;
   cancelReason: string | null;
   uploadedBy: { id: string; name: string } | null;

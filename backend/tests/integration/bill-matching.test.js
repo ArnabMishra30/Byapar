@@ -330,6 +330,95 @@ describe('POST /api/v1/bills/:id/confirm with records that do not exist yet', ()
     expect(stillUnposted.status).not.toBe('POSTED');
   });
 
+  it('uses records an earlier attempt already created instead of refusing', async () => {
+    // Exactly the state a failed posting leaves behind: the supplier and the
+    // product exist, and the shop presses Record again.
+    await request(app)
+      .post('/api/v1/suppliers')
+      .set(auth(tokenA))
+      .send({ name: 'Retry Traders' });
+    await request(app)
+      .post('/api/v1/products')
+      .set(auth(tokenA))
+      .send({ name: 'Retry Sugar 1kg', categoryId: ctxA.categoryId, unitId: ctxA.unitId });
+
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Retry Traders',
+      lines: [{ description: 'Retry Sugar 1kg', quantity: '1', unitPrice: '50' }],
+    });
+
+    const response = await request(app)
+      .post(`/api/v1/bills/${bill.id}/confirm`)
+      .set(auth(tokenA))
+      .send({
+        document: {
+          warehouseId: ctxA.warehouseId,
+          invoiceNumber: 'INV-RETRY-1',
+          invoiceDate: '2026-06-15',
+          items: [{ quantity: '1', unitCost: '50' }],
+        },
+        newParty: { name: 'Retry Traders' },
+        newProducts: [{ index: 0, name: 'Retry Sugar 1kg' }],
+      });
+
+    expect(response.status).toBe(201);
+
+    // One of each, not two: the existing records were used.
+    expect(
+      await prisma.supplier.count({
+        where: { companyId: companyA.company.id, name: 'Retry Traders' },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.product.count({
+        where: { companyId: companyA.company.id, name: 'Retry Sugar 1kg' },
+      }),
+    ).toBe(1);
+  });
+
+  it('finishes the draft a failed attempt left behind rather than starting another', async () => {
+    const bill = await createReviewBill(companyA.company.id, companyA.admin.id, {
+      partyName: 'Sharma General Store',
+      lines: [{ description: 'Basmati Rice 5kg', quantity: '1', unitPrice: '420' }],
+    });
+
+    const document = {
+      warehouseId: ctxA.warehouseId,
+      supplierId: ctxA.supplierId,
+      invoiceNumber: 'INV-RESUME-1',
+      invoiceDate: '2026-06-15',
+      items: [{ productId: ctxA.productId, quantity: '1', unitCost: '420' }],
+    };
+
+    // The draft an interrupted confirm would have created and recorded.
+    const draft = await request(app)
+      .post('/api/v1/purchases')
+      .set(auth(tokenA))
+      .send(document);
+    expect(draft.status).toBe(201);
+
+    const draftId = draft.body.data.purchase.id;
+    await prisma.bill.update({
+      where: { id: bill.id },
+      data: { postedSourceType: 'PURCHASE', postedSourceId: draftId },
+    });
+
+    const before = await prisma.purchase.count({ where: { companyId: companyA.company.id } });
+
+    const response = await request(app)
+      .post(`/api/v1/bills/${bill.id}/confirm`)
+      .set(auth(tokenA))
+      .send({ document });
+
+    expect(response.status).toBe(201);
+    // The same document, now posted - not a second one.
+    expect(response.body.data.bill.posted.sourceId).toBe(draftId);
+    expect(await prisma.purchase.count({ where: { companyId: companyA.company.id } })).toBe(before);
+
+    const purchase = await prisma.purchase.findUnique({ where: { id: draftId } });
+    expect(purchase.status).toBe('POSTED');
+  });
+
   // Last, because it gives company A a second store and so changes the answer
   // to "which store?" for everything after it.
   it('asks which store once a shop has more than one', async () => {

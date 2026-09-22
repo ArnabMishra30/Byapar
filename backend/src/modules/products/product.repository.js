@@ -41,6 +41,14 @@ export function findByIdAndCompany(id, companyId) {
   return prisma.product.findFirst({ where: { id, companyId }, select: FIELDS });
 }
 
+/** Case-insensitive, because a bill prints "RICE 5KG" and the shop typed "Rice 5kg". */
+export function findByNameAndCompany(name, companyId) {
+  return prisma.product.findFirst({
+    where: { companyId, name: { equals: name, mode: 'insensitive' } },
+    select: FIELDS,
+  });
+}
+
 export function findBySkuAndCompany(sku, companyId) {
   return prisma.product.findFirst({
     where: { companyId, sku: { equals: sku, mode: 'insensitive' } },

@@ -1,4 +1,21 @@
 import { prisma } from './prisma.js';
+import { env } from './env.js';
+
+/**
+ * The time a transaction is allowed, rather than Prisma's 2s/5s defaults.
+ *
+ * Those defaults assume a database next door. Posting a purchase locks rows,
+ * writes stock movements and a balanced journal entry - dozens of round trips -
+ * and against a hosted database in another region, or one waking from idle,
+ * five seconds runs out mid-posting. The transaction then aborts, so nothing is
+ * half-written, but the caller sees an unexplained 500.
+ */
+function transactionOptions() {
+  return {
+    maxWait: env.DB_TRANSACTION_MAX_WAIT_MS,
+    timeout: env.DB_TRANSACTION_TIMEOUT_MS,
+  };
+}
 
 /**
  * Runs several repository calls so they all succeed or all fail together.
@@ -15,7 +32,7 @@ import { prisma } from './prisma.js';
  * Do not use it for simple reads.
  */
 export function withTransaction(fn) {
-  return prisma.$transaction(fn);
+  return prisma.$transaction(fn, transactionOptions());
 }
 
 // PostgreSQL error codes that mean "this transaction lost a race, try again".
@@ -45,7 +62,7 @@ export async function withRetryableTransaction(fn, { retries = 3 } = {}) {
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
-      return await prisma.$transaction(fn);
+      return await prisma.$transaction(fn, transactionOptions());
     } catch (error) {
       lastError = error;
       if (!isRetryable(error)) throw error;

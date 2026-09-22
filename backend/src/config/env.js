@@ -56,6 +56,16 @@ const envSchema = z.object({
   /** Budget for the whole read: upload, job and polling together. */
   LLAMA_TIMEOUT_MS: z.coerce.number().int().positive().default(90000),
 
+  // HOW LONG A TRANSACTION MAY TAKE.
+  //
+  // Prisma's own defaults are 2s to get a connection and 5s to finish, which is
+  // generous against a database on the same machine and far too tight against a
+  // managed one in another region: posting a document is dozens of round trips,
+  // and a hosted database that has scaled to zero spends the first of them
+  // waking up. Exceeding the limit aborts mid-posting and surfaces as a 500.
+  DB_TRANSACTION_MAX_WAIT_MS: z.coerce.number().int().positive().default(10000),
+  DB_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
+
   /** Where uploaded bills are written. Outside the repo in any real deployment. */
   BILL_STORAGE_DIR: z.string().default('./storage/bills'),
   /** Hard ceiling on an uploaded bill, in bytes. Default 10 MB. */

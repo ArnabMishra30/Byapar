@@ -54,14 +54,23 @@ function toPublicBill(bill) {
     extractedAt: bill.extractedAt ?? null,
     extractionError: bill.extractionError ?? null,
     reviewedData: bill.reviewedData ?? null,
-    posted: bill.postedSourceId
-      ? {
-          sourceType: bill.postedSourceType,
-          sourceId: bill.postedSourceId,
-          postedAt: bill.postedAt,
-          postedBy: bill.postedBy,
-        }
-      : null,
+    // POSTED MEANS POSTED. A source id with no postedAt is a draft an earlier
+    // attempt left behind, and calling that "recorded" would tell the shop its
+    // books contain something they do not.
+    posted:
+      bill.postedSourceId && bill.postedAt
+        ? {
+            sourceType: bill.postedSourceType,
+            sourceId: bill.postedSourceId,
+            postedAt: bill.postedAt,
+            postedBy: bill.postedBy,
+          }
+        : null,
+    /** A draft waiting to be finished, from a confirm that could not post. */
+    draft:
+      bill.postedSourceId && !bill.postedAt
+        ? { sourceType: bill.postedSourceType, sourceId: bill.postedSourceId }
+        : null,
     cancelledAt: bill.cancelledAt ?? null,
     cancelReason: bill.cancelReason ?? null,
     uploadedBy: bill.uploadedBy,
@@ -227,6 +236,26 @@ export async function saveReview(currentUser, id, reviewedData) {
  * journal. This function's only job is to call them and remember the result.
  */
 /**
+ * The draft a previous confirm created but could not post, if it is still there.
+ *
+ * Returns null whenever there is any doubt - no record, the document was
+ * cancelled, or it is no longer a draft - so the ordinary path creates a fresh
+ * one. Being wrong in that direction costs an extra draft; being wrong the other
+ * way would post something the shop did not just review.
+ */
+async function findRecordedDraft(currentUser, bill, service) {
+  if (!bill.postedSourceId || bill.postedAt) return null;
+
+  try {
+    const document = await service.getById(currentUser, bill.postedSourceId);
+    return document?.status === 'DRAFT' ? document : null;
+  } catch {
+    // Deleted, or belonging to something else entirely. Start again.
+    return null;
+  }
+}
+
+/**
  * What this bill looks like it refers to in the shop's own records.
  *
  * Read-only and advisory: it pre-fills the review screen so a regular supplier
@@ -313,8 +342,16 @@ export async function confirm(
     );
   }
 
+  // A DRAFT LEFT BEHIND BY AN EARLIER ATTEMPT IS FINISHED, NOT DUPLICATED.
+  //
+  // When a confirm creates the draft and then fails at posting, the draft stays
+  // and its id is recorded below. Creating a second one on the retry would be
+  // refused anyway - a supplier cannot have two bills with one invoice number -
+  // so the shop would be left with a bill it could never record.
+  const existingDraft = await findRecordedDraft(currentUser, bill, service);
+
   // The existing service. Same validation, same calculators, same everything.
-  const draft = await service.createDraft(currentUser, parsed.data);
+  const draft = existingDraft ?? (await service.createDraft(currentUser, parsed.data));
 
   let posted = draft;
   if (postImmediately) {
@@ -322,11 +359,14 @@ export async function confirm(
       posted = await service.post(currentUser, draft.id);
     } catch (error) {
       // The draft exists and is correct; only the posting was refused - a closed
-      // period, an expired subscription, insufficient stock. Record where the
-      // draft went so the shop can finish it, and let the real reason surface.
+      // period, an expired subscription, a database that took too long. Record
+      // where the draft went so the retry finishes it rather than starting
+      // again, and let the real reason surface.
       await billRepository.update(bill.id, {
         status: 'REVIEW',
         reviewedData: documentToPost,
+        postedSourceType: sourceType,
+        postedSourceId: draft.id,
         extractionError: null,
       });
 
