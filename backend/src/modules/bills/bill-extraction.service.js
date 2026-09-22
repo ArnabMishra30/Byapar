@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { env } from '../../config/env.js';
 import { ApiError } from '../../utils/api-error.js';
 import { logger } from '../../utils/logger.js';
+import { extractWithLlamaCloud } from './llamacloud.client.js';
 
 // READING A BILL WITH A MODEL.
 //
@@ -83,25 +84,63 @@ export const extractionSchema = z.object({
 });
 
 const SYSTEM_PROMPT = [
-  'You read photographs and PDFs of Indian retail and wholesale bills and return structured data.',
-  '',
-  'Return ONLY a JSON object. No prose, no markdown, no code fences.',
+  'You are reading a photograph or PDF of an Indian retail or wholesale bill.',
   '',
   'Rules:',
   '- Transcribe what is printed. Never calculate, correct or infer a missing value.',
-  '- If a field is not clearly legible, return null for it. Do not guess.',
+  '- If a field is not clearly legible, leave it out. Do not guess.',
   '- Money and quantities: digits only, a dot for decimals, no currency symbol, no thousands separators.',
   '- Dates: YYYY-MM-DD. An Indian bill showing 03/04/2025 means 3 April 2025.',
   '- Return every line item you can read, in the order printed.',
   '- confidence: HIGH if the bill is crisp and complete, MEDIUM if parts are unclear, LOW if you are mostly guessing.',
-  '',
-  'Schema:',
-  '{"partyName":string|null,"partyGstin":string|null,"partyPhone":string|null,"partyAddress":string|null,',
-  '"invoiceNumber":string|null,"invoiceDate":"YYYY-MM-DD"|null,"subtotal":string|null,"totalTax":string|null,',
-  '"totalDiscount":string|null,"grandTotal":string|null,"confidence":"HIGH"|"MEDIUM"|"LOW","notes":string|null,',
-  '"lines":[{"description":string|null,"hsnCode":string|null,"quantity":string|null,"unit":string|null,',
-  '"unitPrice":string|null,"discount":string|null,"taxRate":string|null,"lineTotal":string|null}]}',
 ].join('\n');
+
+/**
+ * The same shape as extractionSchema, in the JSON Schema the vendor accepts.
+ *
+ * IT IS NOT THE VALIDATION. Whatever comes back is still forced through
+ * extractionSchema below - this only tells the reader what to look for, and a
+ * service that ignored it would change nothing about what reaches the books.
+ */
+const money = (what) => ({ type: 'string', description: `${what}, digits only, e.g. "1234.50"` });
+
+const EXTRACTION_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    partyName: { type: 'string', description: 'The other business on the bill, as printed' },
+    partyGstin: { type: 'string', description: 'Their 15-character GSTIN, if printed' },
+    partyPhone: { type: 'string', description: 'Their phone number, if printed' },
+    partyAddress: { type: 'string', description: 'Their address, if printed' },
+    invoiceNumber: { type: 'string', description: 'The bill or invoice number' },
+    invoiceDate: { type: 'string', description: 'The bill date as YYYY-MM-DD' },
+    subtotal: money('Total before tax'),
+    totalTax: money('Total tax charged'),
+    totalDiscount: money('Total discount given'),
+    grandTotal: money('The final amount payable'),
+    confidence: {
+      type: 'string',
+      description: 'HIGH if the bill is crisp and complete, MEDIUM if parts are unclear, LOW if mostly guessing',
+    },
+    notes: { type: 'string', description: 'Anything unclear or unusual about this bill' },
+    lines: {
+      type: 'array',
+      description: 'One entry per line item printed on the bill, in order',
+      items: {
+        type: 'object',
+        properties: {
+          description: { type: 'string', description: 'The item name as printed' },
+          hsnCode: { type: 'string', description: 'HSN or SAC code, if printed' },
+          quantity: money('Quantity'),
+          unit: { type: 'string', description: 'Unit such as kg, pcs, box' },
+          unitPrice: money('Price per unit'),
+          discount: money('Discount on this line'),
+          taxRate: money('Tax percentage on this line'),
+          lineTotal: money('Total for this line'),
+        },
+      },
+    },
+  },
+};
 
 /** Whether bill extraction can run at all. */
 export function isExtractionConfigured() {
@@ -151,90 +190,22 @@ export async function extractBill(fileBuffer, mimeType, direction) {
     );
   }
 
-  const dataUrl = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+  // WORDING, NOT LOGIC. The direction only tells the reader whose bill this is.
+  // What gets posted is decided later, by the person who reviews it.
   const wording =
     direction === 'IN'
       ? 'This is a bill this shop RECEIVED from a supplier.'
       : 'This is a bill this shop ISSUED to a customer.';
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), env.LLAMA_TIMEOUT_MS);
+  const { result, model } = await extractWithLlamaCloud(fileBuffer, mimeType, {
+    jsonSchema: EXTRACTION_JSON_SCHEMA,
+    systemPrompt: `${SYSTEM_PROMPT}\n\n${wording}`,
+  });
 
-  let response;
-  try {
-    response = await fetch(`${env.LLAMA_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-        // The secret. Read from env, used here, and nowhere else in the system.
-        Authorization: `Bearer ${env.LLAMA_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: env.LLAMA_MODEL,
-        temperature: 0,
-        max_tokens: 4096,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: `${wording} Read it and return the JSON object.` },
-              { type: 'image_url', image_url: { url: dataUrl } },
-            ],
-          },
-        ],
-      }),
-    });
-  } catch (error) {
-    clearTimeout(timer);
+  // An object is what this service returns. A string is still accepted, because
+  // wrapping JSON in prose is a known habit of the things that read documents.
+  const parsedJson = typeof result === 'string' ? extractJsonObject(result) : result;
 
-    if (error.name === 'AbortError') {
-      throw ApiError.business(
-        504,
-        'EXTRACTION_TIMEOUT',
-        'Reading the bill took too long. Try again, or enter it manually.',
-      );
-    }
-
-    // The vendor's error may quote the request. Log ours, show the user none of it.
-    logger.error({ err: error.message }, 'Bill extraction request failed');
-    throw ApiError.business(
-      502,
-      'EXTRACTION_UNAVAILABLE',
-      'The bill reading service could not be reached. Try again, or enter it manually.',
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!response.ok) {
-    // Body may echo the Authorization header back in some vendors' errors, so it
-    // is logged at a length that is useful and never returned to the caller.
-    const body = await response.text().catch(() => '');
-    logger.error(
-      { status: response.status, body: body.slice(0, 500) },
-      'Bill extraction returned an error',
-    );
-
-    throw ApiError.business(
-      response.status === 429 ? 429 : 502,
-      response.status === 429 ? 'EXTRACTION_RATE_LIMITED' : 'EXTRACTION_FAILED',
-      response.status === 429
-        ? 'The bill reading service is busy. Wait a moment and try again.'
-        : 'The bill could not be read automatically. Enter it manually, or try another photo.',
-    );
-  }
-
-  const payload = await response.json().catch(() => null);
-  const content = payload?.choices?.[0]?.message?.content;
-
-  // Some responses come back as an array of content parts rather than a string.
-  const text = Array.isArray(content)
-    ? content.map((part) => part?.text ?? '').join('')
-    : content;
-
-  const parsedJson = extractJsonObject(text);
 
   if (!parsedJson) {
     throw ApiError.business(
@@ -264,7 +235,7 @@ export async function extractBill(fileBuffer, mimeType, direction) {
 
   return {
     data: validated.data,
-    model: env.LLAMA_MODEL,
+    model,
     /** Kept verbatim for audit - what the model actually said, before our shaping. */
     raw: parsedJson,
   };

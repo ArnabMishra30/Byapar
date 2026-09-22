@@ -41,14 +41,20 @@ const envSchema = z.object({
   // an accounting system.
   //
   // LLAMA_API_KEY IS A SERVER SECRET. It is read here, used only in
-  // bill-extraction.service.js, and never travels to a browser: the upload
-  // endpoint takes the file, the server calls the model, and the browser only
-  // ever sees the extracted fields. There is deliberately no NEXT_PUBLIC_
-  // counterpart to any of these.
+  // llamacloud.client.js, and never travels to a browser: the upload endpoint
+  // takes the file, the server calls the reader, and the browser only ever sees
+  // the extracted fields. There is deliberately no NEXT_PUBLIC_ counterpart to
+  // any of these.
+  //
+  // The key is a LlamaCloud key (cloud.llamaindex.ai), which starts "llx-".
   LLAMA_API_KEY: z.string().optional(),
-  LLAMA_BASE_URL: z.string().url().default('https://api.llama.com/v1'),
-  LLAMA_MODEL: z.string().default('Llama-4-Maverick-17B-128E-Instruct-FP8'),
-  LLAMA_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
+  LLAMA_BASE_URL: z.string().url().default('https://api.cloud.llamaindex.ai'),
+  /** LlamaExtract tier: fast | cost_effective | agentic | agentic_plus. */
+  LLAMA_EXTRACT_TIER: z.string().default('cost_effective'),
+  /** Only needed for an account with more than one project; the default is found. */
+  LLAMA_PROJECT_ID: z.string().optional(),
+  /** Budget for the whole read: upload, job and polling together. */
+  LLAMA_TIMEOUT_MS: z.coerce.number().int().positive().default(90000),
 
   /** Where uploaded bills are written. Outside the repo in any real deployment. */
   BILL_STORAGE_DIR: z.string().default('./storage/bills'),

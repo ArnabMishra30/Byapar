@@ -75,10 +75,11 @@ Never put a real value in any committed file.
 | `CORS_ORIGIN` | Yes | `https://byapar-admin.onrender.com,https://byapar-web.onrender.com` | the two frontend URLs, no trailing slash | No |
 | `JWT_EXPIRES_IN` | No | `1d` | default `1d` | No |
 | `LOG_LEVEL` | No | `info` | default `info` | No |
-| `LLAMA_API_KEY` | For AI bill reading | `<your API key>` | your Llama API account | **Yes** |
-| `LLAMA_BASE_URL` | No | `https://api.llama.com/v1` | default shown | No |
-| `LLAMA_MODEL` | No | `Llama-4-Maverick-17B-128E-Instruct-FP8` | default shown | No |
-| `LLAMA_TIMEOUT_MS` | No | `60000` | default | No |
+| `LLAMA_API_KEY` | For AI bill reading | `llx-...` | LlamaCloud (cloud.llamaindex.ai) → API Keys | **Yes** |
+| `LLAMA_BASE_URL` | No | `https://api.cloud.llamaindex.ai` | default shown | No |
+| `LLAMA_EXTRACT_TIER` | No | `cost_effective` | `fast`, `cost_effective`, `agentic`, `agentic_plus` | No |
+| `LLAMA_PROJECT_ID` | No | a project UUID | only for an account with several projects | No |
+| `LLAMA_TIMEOUT_MS` | No | `90000` | default; covers upload + job + polling | No |
 | `BILL_STORAGE_DIR` | With a disk | `/var/data/bills` | the disk's mount path + `/bills` | No |
 | `BILL_MAX_FILE_SIZE` | No | `10485760` | default 10 MB | No |
 
@@ -202,11 +203,12 @@ The extracted fields stay in the database; opening the original afterwards shows
 | Paid instance + Persistent Disk, mount `/var/data`, `BILL_STORAGE_DIR=/var/data/bills` | none | Yes (single instance; a few seconds of downtime per deploy) |
 | Object storage (S3 / R2) | yes, in `bill-storage.service.js` | Yes |
 
-AI flow: browser uploads to `POST /api/v1/bills` → backend stores the file → backend calls
-`LLAMA_BASE_URL/chat/completions` with `LLAMA_API_KEY` → extracted fields saved as a draft →
-user reviews and edits → confirm posts through the normal purchase/sales flow. Without
-`LLAMA_API_KEY` the upload reports "Automatic bill reading is not set up" (503); there is no
-fake extraction.
+AI flow: browser uploads to `POST /api/v1/bills` → backend stores the file → backend sends it to
+LlamaCloud (LlamaExtract): upload to `/api/v1/beta/files`, create a job at `/api/v2/extract` with
+the bill schema, poll until it completes → the returned fields are validated against the same
+schema and saved as a draft → the shop owner reviews and edits → confirm posts through the normal
+purchase/sales flow. A read takes roughly 20–30 seconds. Without `LLAMA_API_KEY` the upload
+reports "Automatic bill reading is not set up" (503); there is no fake extraction.
 
 ## Custom domains (later)
 
@@ -247,8 +249,9 @@ certificate automatically once DNS resolves. Afterwards:
 | 401 on every request | `JWT_SECRET` changed, or token expired | Log in again |
 | Next.js page 500 | See the service's Logs | Usually a runtime error in the log |
 | Uploaded bill image missing | Ephemeral filesystem | Persistent disk or object storage |
-| AI extraction 503 | `LLAMA_API_KEY` not set | Add it to byapar-api, Save and deploy |
-| AI extraction 502/504 | Provider unavailable, rate-limited, or timed out | Check key, model name, `LLAMA_TIMEOUT_MS`; retry |
+| AI extraction 503 "not set up" | `LLAMA_API_KEY` missing, or LlamaCloud rejected it (401/403) | Add or replace the `llx-` key on byapar-api, Save and deploy |
+| AI extraction 502/504 | LlamaCloud unavailable, or the read outran `LLAMA_TIMEOUT_MS` | Retry; raise the timeout; check credits at cloud.llamaindex.ai |
+| AI extraction 429 | LlamaCloud rate limit | Wait and retry |
 | AI extraction 422 | The model could not read this bill | Retake a clearer photo, or enter the bill manually |
 | First request takes ~1 minute | Free instance spin-down | Expected; paid instances stay up |
 | Rate limit hit by everyone at once | Proxy trust wrong | Check logs for `ERR_ERL_` messages |
