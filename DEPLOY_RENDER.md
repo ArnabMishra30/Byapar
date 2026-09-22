@@ -18,21 +18,24 @@ path and variable name below comes from this repository.
                          byapar-api (Web Service)
                          backend/  Express + Prisma
                          /api/v1/*   CORS_ORIGIN = the two sites
-                                     │  DATABASE_URL (Internal URL)
+                                     │  DATABASE_URL (Neon direct URL, TLS)
                                      │          ─── HTTPS ──> Llama API (LLAMA_API_KEY, backend only)
-                         byapar-db (Render Postgres)
+                         Neon Postgres (outside Render)
                                      │
                          bill files: BILL_STORAGE_DIR (see "Uploaded bills")
 ```
 
 * The two Next.js apps have no server-side API calls. The **browser** calls the backend
   directly, so the backend URL must be public and HTTPS.
-* Only the backend talks to Postgres, over Render's private network (Internal URL).
+* Only the backend talks to Postgres. The database is Neon, outside Render, reached over the
+  public internet with TLS (`sslmode=require`).
 * There is no agency portal, no Redis, no cron job, no worker, and no Docker in this project.
 
 ## Services
 
-All in the **same region** (the Internal Database URL only works within one region).
+Put all three Render services in the **same region**, and create the Neon project in the
+**same city** (for example Render Singapore + Neon `ap-southeast-1` Singapore) so database
+round trips stay short.
 
 | | byapar-api | byapar-admin | byapar-web |
 |---|---|---|---|
@@ -67,7 +70,7 @@ Never put a real value in any committed file.
 |---|---|---|---|---|
 | `NODE_VERSION` | Yes | `22` | fixed | No |
 | `NODE_ENV` | Yes | `production` | fixed | No |
-| `DATABASE_URL` | Yes | `postgresql://user:pass@dpg-xxxx-a/dbname` | byapar-db → Connect → **Internal Database URL** | **Yes** |
+| `DATABASE_URL` | Yes | `postgresql://user:pass@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require` | Neon → Connect → **direct (unpooled)** string, not the `-pooler` one | **Yes** |
 | `JWT_SECRET` | Yes | 64 random characters | generate (below); never reuse the local one | **Yes** |
 | `CORS_ORIGIN` | Yes | `https://byapar-admin.onrender.com,https://byapar-web.onrender.com` | the two frontend URLs, no trailing slash | No |
 | `JWT_EXPIRES_IN` | No | `1d` | default `1d` | No |
@@ -105,7 +108,7 @@ Changing `JWT_SECRET` later signs every user out.
 ## Deployment order
 
 1. Push the repository to GitHub.
-2. Create **byapar-db** (Postgres).
+2. Create the **Neon** project and copy its direct connection string.
 3. Create **byapar-api** with `CORS_ORIGIN` left unset for now. Deploy; the start command applies
    all 18 migrations to the empty database.
 4. Check `https://<api>/api/v1/health` and `/api/v1/health/db`.
@@ -123,28 +126,44 @@ because it needs the frontend URLs. Render shows a service's URL as soon as it i
 
 | | Local | Test | Render production |
 |---|---|---|---|
-| Where | your PC, `backend/.env` | your PC, `backend/.env.test` | Render Postgres |
+| Where | your PC, `backend/.env` | your PC, `backend/.env.test` | Neon (cloud) |
 | Used by | `npm run dev` | `npm test` (wiped by tests) | byapar-api |
 | Migrations | `prisma migrate dev` | test setup | `prisma migrate deploy` only |
 
-**Plan.** A Free Render Postgres database **expires 30 days after creation** (14-day grace to
-upgrade, then deleted), has a 1 GB limit and **no backups**. Use it only for a trial. For real
-shop data choose a paid plan, which includes backups. PostgreSQL version: 18 (matches local).
+**Provider: Neon.** The Free plan gives 0.5 GB of storage per project and 100 compute-hours a
+month, and **nothing is deleted** when a limit is reached — writes simply start failing until
+space is freed or the plan is upgraded. Instant restore history is 6 hours; for longer backups,
+upgrade. Choose PostgreSQL 18 to match local development.
 
-**Which URL.**
-* `DATABASE_URL` on byapar-api: the **Internal Database URL** (private network, same region).
-* From your own computer (seeding, inspection): the **External Database URL**, with
-  `?sslmode=require` appended.
+**Scale to zero.** On the Free plan the compute sleeps after 5 minutes of inactivity and cannot
+be kept awake. The next query wakes it, which adds about half a second — and the first request
+after a long idle can occasionally fail while both Render and Neon wake up. `connect_timeout=15`
+in the connection string gives Neon time to start.
+
+**Which URL.** Neon offers two connection strings. Use the **direct (unpooled)** one — the host
+*without* `-pooler` — everywhere: on byapar-api and from your own computer.
+
+```text
+postgresql://<user>:<password>@ep-xxxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&connect_timeout=15
+```
+
+* The pooled (`-pooler`) string runs through PgBouncer in transaction mode, which cannot run
+  `prisma migrate deploy` and drops session features. This backend is one long-running server
+  with its own small Prisma pool, so it does not need PgBouncer.
+* Keep `sslmode=require`. If Neon's copy button adds `channel_binding=require`, delete that part.
+* Only if you later run the backend on many instances, switch to the pooled string and add a
+  `directUrl` for migrations in `schema.prisma`.
 
 **Never run against production:** `prisma migrate dev`, `prisma migrate reset`,
 `prisma db push`, `npm run seed:demo`, or `npm test`. The demo seed refuses a non-local
 database and `NODE_ENV=production`, but do not rely on that.
 
-**Seed the platform superadmin** (free instances have no Shell, so run it from your computer):
+**Seed the platform superadmin** (Render free instances have no Shell, and Neon is reachable
+from anywhere, so run it from your computer):
 
 ```powershell
 cd C:\Personal\byapar-clone\backend
-$env:DATABASE_URL = "<External Database URL>?sslmode=require"
+$env:DATABASE_URL = "<the same Neon direct URL used on Render>"
 $env:PLATFORM_ADMIN_EMAIL = "you@yourdomain.com"
 $env:PLATFORM_ADMIN_PASSWORD = Read-Host "Choose the platform admin password"
 npm run seed:platform
@@ -155,8 +174,9 @@ It creates a `PLATFORM_ADMIN` with no company, never overwrites an existing pass
 refuses an email that already belongs to a shop user. Shop owners and sales staff are then
 created from the admin panel.
 
-After seeding you can restrict external access: byapar-db → **Networking** → IP allow list.
-The backend's internal connection is unaffected.
+The Neon database is reachable from any IP with the password. Restricting that (Neon's IP Allow)
+is a paid feature, so keep the connection string secret: it lives only in Render's Environment
+tab and your local `backend/.env`, never in git.
 
 ## Authentication and CORS
 
@@ -214,7 +234,9 @@ certificate automatically once DNS resolves. Afterwards:
 | `Cannot find module` only on Render | Import case differs from file name, or file not committed | Fix the import / commit the file |
 | Odd build or runtime errors | Node version | `NODE_VERSION=22` on every service |
 | `Invalid environment configuration: DATABASE_URL / JWT_SECRET` then exit 1 | Missing/short variable | Add it; `JWT_SECRET` needs 32+ characters |
-| `P1001 Can't reach database server` | Wrong URL or region | Internal URL, same region as the DB |
+| `P1001 Can't reach database server` | Wrong URL, or Neon compute waking up | Check the string; add `connect_timeout=15`; retry once |
+| Migration fails with a prepared-statement or "transaction mode" error | Using Neon's `-pooler` string | Use the direct (unpooled) host |
+| `invalid connection string` / unknown parameter | `channel_binding=require` left in the URL | Remove it, keep `sslmode=require` |
 | `P3009` / `P3018` migration failed | A migration failed partway | Read the log; never `migrate reset` in production. Fix, then `prisma migrate resolve` as the error instructs |
 | "No open ports detected" / timed out | Wrong start command | `npm run start:render` |
 | Browser: CORS error | Origin not in `CORS_ORIGIN` | Add the exact URL (https, no trailing slash), Save and deploy |

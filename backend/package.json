@@ -19,6 +19,8 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "node prisma/seed-admin.js",
     "seed:platform": "node prisma/seed-platform-admin.js",
+    "seed:platform:prod": "node --env-file=.env.production prisma/seed-platform-admin.js",
+    "db:status:prod": "node --env-file=.env.production node_modules/prisma/build/index.js migrate status",
     "seed:demo": "node prisma/seed-demo.js"
   },
   "prisma": {

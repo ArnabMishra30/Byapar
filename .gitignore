@@ -20,6 +20,11 @@ backend/.env.*
 frontend/.env.local
 frontend/.env.*.local
 
+# Local copies of production connection strings and other secrets.
+# Keep the production DATABASE_URL in a file like backend/db-url.secret.txt and
+# read it from there, so it is never typed into a terminal or pasted into chat.
+*.secret.txt
+
 # Test and build output
 *.tsbuildinfo
 coverage/
