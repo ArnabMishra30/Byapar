@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { app } from '../../src/app.js';
-import { prisma, resetDatabase, createTestUser } from '../helpers/db.js';
+import { prisma, resetDatabase, createTestUser, cookiesFrom } from '../helpers/db.js';
 
 const EMAIL = 'tester@example.com';
 const PASSWORD = 'test-password-123';
@@ -22,19 +22,28 @@ async function loginAndGetToken() {
     .post('/api/v1/auth/login')
     .send({ email: EMAIL, password: PASSWORD });
 
-  return response.body.data.token;
+  return cookiesFrom(response).byapar_at;
 }
 
 describe('POST /api/v1/auth/login', () => {
-  it('logs in with correct credentials and returns a token', async () => {
+  it('logs in and sets the session as httpOnly cookies, never in the body', async () => {
     const response = await request(app)
       .post('/api/v1/auth/login')
       .send({ email: EMAIL, password: PASSWORD });
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
-    expect(typeof response.body.data.token).toBe('string');
     expect(response.body.data.user.email).toBe(EMAIL);
+    expect(response.body.data.token).toBeUndefined();
+
+    const setCookie = response.headers['set-cookie'].join(' | ');
+    expect(setCookie).toMatch(/byapar_at=[^;]+;.*Path=\/api\/v1;.*HttpOnly;.*SameSite=Strict/);
+    expect(setCookie).toMatch(/byapar_rt=[^;]+;.*Path=\/api\/v1\/auth;.*HttpOnly;.*SameSite=Strict/);
+
+    // Neither token may appear anywhere a page script can read.
+    const { byapar_at: access, byapar_rt: refresh } = cookiesFrom(response);
+    expect(JSON.stringify(response.body)).not.toContain(access);
+    expect(JSON.stringify(response.body)).not.toContain(refresh);
   });
 
   it('accepts the email in a different case', async () => {
@@ -175,5 +184,120 @@ describe('GET /api/v1/auth/me', () => {
       .set('Authorization', `Bearer ${token}`);
 
     expect(response.status).toBe(401);
+  });
+});
+
+describe('cookie sessions', () => {
+  async function signIn() {
+    const response = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: EMAIL, password: PASSWORD });
+    return cookiesFrom(response);
+  }
+
+  const refreshWith = (refreshToken) =>
+    request(app).post('/api/v1/auth/refresh').set('Cookie', `byapar_rt=${refreshToken}`);
+
+  it('authenticates a request from the access cookie alone', async () => {
+    const { byapar_at: access } = await signIn();
+
+    const response = await request(app).get('/api/v1/auth/me').set('Cookie', `byapar_at=${access}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.user.email).toBe(EMAIL);
+  });
+
+  it('stores only a hash of the refresh token', async () => {
+    const { byapar_rt: refresh } = await signIn();
+
+    const rows = await prisma.refreshToken.findMany();
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.some((row) => row.tokenHash === refresh)).toBe(false);
+  });
+
+  it('refreshes: a new access token and a ROTATED refresh token', async () => {
+    const { byapar_rt: original } = await signIn();
+
+    const response = await refreshWith(original);
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.user.email).toBe(EMAIL);
+    const next = cookiesFrom(response);
+    expect(next.byapar_at).toBeTruthy();
+    expect(next.byapar_rt).toBeTruthy();
+    expect(next.byapar_rt).not.toBe(original);
+
+    const me = await request(app).get('/api/v1/auth/me').set('Cookie', `byapar_at=${next.byapar_at}`);
+    expect(me.status).toBe(200);
+  });
+
+  it('tolerates two tabs refreshing with the same token at once', async () => {
+    const { byapar_rt: original } = await signIn();
+
+    const first = await refreshWith(original);
+    const second = await refreshWith(original);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    // The loser gets an access token only and leaves the winner's cookie alone.
+    expect(cookiesFrom(second).byapar_at).toBeTruthy();
+    expect(cookiesFrom(second).byapar_rt).toBeUndefined();
+  });
+
+  it('treats a replayed old token as theft and ends the whole sign-in', async () => {
+    const { byapar_rt: original } = await signIn();
+    const rotated = cookiesFrom(await refreshWith(original)).byapar_rt;
+
+    // Age the rotation past the grace window, as a thief replaying later would.
+    await prisma.refreshToken.updateMany({
+      where: { replacedById: { not: null } },
+      data: { revokedAt: new Date(Date.now() - 60 * 1000) },
+    });
+
+    const replay = await refreshWith(original);
+    expect(replay.status).toBe(401);
+    expect(cookiesFrom(replay).byapar_rt).toBe('');
+
+    // The legitimate holder's newer token is dead too.
+    const legit = await refreshWith(rotated);
+    expect(legit.status).toBe(401);
+  });
+
+  it('rejects a missing, unknown or expired refresh token', async () => {
+    expect((await request(app).post('/api/v1/auth/refresh')).status).toBe(401);
+    expect((await refreshWith('not-a-real-token')).status).toBe(401);
+
+    const { byapar_rt: refresh } = await signIn();
+    await prisma.refreshToken.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
+    expect((await refreshWith(refresh)).status).toBe(401);
+  });
+
+  it('refuses to refresh for a deactivated user', async () => {
+    const other = 'deactivated-refresh@example.com';
+    const { user } = await createTestUser({ email: other, password: PASSWORD });
+    const login = await request(app).post('/api/v1/auth/login').send({ email: other, password: PASSWORD });
+    const { byapar_rt: refresh } = cookiesFrom(login);
+
+    await prisma.user.update({ where: { id: user.id }, data: { isActive: false } });
+
+    expect((await refreshWith(refresh)).status).toBe(401);
+  });
+
+  it('logout revokes the refresh token and clears both cookies', async () => {
+    const { byapar_rt: refresh } = await signIn();
+
+    const response = await request(app).post('/api/v1/auth/logout').set('Cookie', `byapar_rt=${refresh}`);
+
+    expect(response.status).toBe(200);
+    const cleared = cookiesFrom(response);
+    expect(cleared.byapar_at).toBe('');
+    expect(cleared.byapar_rt).toBe('');
+
+    expect((await refreshWith(refresh)).status).toBe(401);
+  });
+
+  it('logout without a session still succeeds', async () => {
+    const response = await request(app).post('/api/v1/auth/logout');
+    expect(response.status).toBe(200);
   });
 });

@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { ApiError } from '../utils/api-error.js';
 import * as authRepository from '../modules/auth/auth.repository.js';
+import { ACCESS_COOKIE, readCookie } from '../utils/cookies.js';
 
 /**
  * The authenticated request context.
@@ -14,7 +15,24 @@ import * as authRepository from '../modules/auth/auth.repository.js';
  */
 
 /**
- * Reads "Authorization: Bearer <token>", verifies it, and loads the user.
+ * Finds the access token: the httpOnly session cookie the browser sends, or an
+ * "Authorization: Bearer <token>" header from a non-browser client (scripts,
+ * tests). A Bearer header cannot be forged by another site, so accepting it
+ * does not reopen CSRF.
+ */
+function readAccessToken(req) {
+  const fromCookie = readCookie(req, ACCESS_COOKIE);
+  if (fromCookie) return fromCookie;
+
+  const header = req.headers.authorization;
+  if (header && header.startsWith('Bearer ')) {
+    return header.slice('Bearer '.length).trim() || null;
+  }
+  return null;
+}
+
+/**
+ * Reads the access token (see readAccessToken), verifies it, and loads the user.
  *
  * The token is only used to identify WHICH user is calling. Role, company and
  * active status are re-read from the database on every request, so a deactivated
@@ -24,13 +42,11 @@ import * as authRepository from '../modules/auth/auth.repository.js';
  * Sets req.user (see AuthUser above).
  */
 export async function requireAuth(req, _res, next) {
-  const header = req.headers.authorization;
+  const token = readAccessToken(req);
 
-  if (!header || !header.startsWith('Bearer ')) {
-    return next(ApiError.unauthorized('Missing or invalid Authorization header'));
+  if (!token) {
+    return next(ApiError.unauthorized('Not signed in'));
   }
-
-  const token = header.slice('Bearer '.length).trim();
 
   let payload;
   try {

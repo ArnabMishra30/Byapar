@@ -44,12 +44,12 @@ Because they are read at build time, **redeploy after changing any of them**.
 
 | Variable | Public/secret | Needed now? | Value |
 |---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | Public | Only for login and the shop app | `https://<backend>.onrender.com/api/v1` |
+| `API_URL` | Not secret | Only for login and the shop app | `https://<backend>.onrender.com/api/v1` |
 | `NEXT_PUBLIC_CONTACT_EMAIL` | Public | Optional | e.g. `hello@yourdomain.com` |
 | `NEXT_PUBLIC_CONTACT_PHONE` | Public | Optional | e.g. `+91 98765 43210` |
 | `NODE_VERSION` | Not sensitive | **Required** | `22` |
 
-Without `NEXT_PUBLIC_API_URL` the landing page works fully; pricing shows the plans
+Without `API_URL` the landing page works fully; pricing shows the plans
 configured in `src/features/landing/site-config.ts`, and the build log prints a warning.
 Login shows "This site is not connected to the server yet."
 
@@ -59,10 +59,13 @@ production mode itself.
 
 ## When the backend is deployed
 
-1. Set `NEXT_PUBLIC_API_URL` on this service to the backend URL ending in `/api/v1`, then redeploy.
+1. Set `API_URL` on this service to the backend URL ending in `/api/v1`, then redeploy.
+   (`NEXT_PUBLIC_API_URL` from an older setup is still accepted.) The browser calls `/api/v1`
+   on this site and Next.js proxies it there, so the session cookies stay first-party.
 2. On the backend service, add this site's URL to `CORS_ORIGIN`, e.g.
    `CORS_ORIGIN=https://byapar-business-web.onrender.com` (comma-separate several origins).
-   The app sends a bearer token, not cookies, so nothing else is needed for CORS.
+3. On the backend service, set `TRUST_PROXY=2` (the proxy is an extra hop). See the root
+   `DEPLOY_RENDER.md`, "How the session works".
 
 ## Troubleshooting
 
@@ -74,7 +77,7 @@ production mode itself.
 | `Module not found` that works on Windows | Import path case differs from the file name (Linux is case-sensitive), or the file was never committed. |
 | Build fails on a type or lint error | The build runs `tsc` and ESLint. Run `npm run build` locally, fix, push. |
 | Deploy stuck at "no open ports detected" / timed out | Start command is not `npm run start:render`, or it passes `-p 3002`. |
-| Login says it cannot reach the server | `NEXT_PUBLIC_API_URL` missing, wrong, or still `localhost`. Fix, then redeploy (a restart is not enough). |
+| Login says it cannot reach the server | `API_URL` missing, wrong, or still `localhost`. Fix, then redeploy (a restart is not enough). |
 | Browser console shows a CORS error | Backend `CORS_ORIGIN` does not include this site's URL. |
 | First visit takes ~1 minute | Free instances sleep after 15 minutes idle. Normal; upgrade the instance to avoid it. |
 | Old code still served | Manual Deploy → "Clear build cache & deploy". |

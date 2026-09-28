@@ -1,35 +1,25 @@
-/**
- * Where the Express backend lives.
- *
- * NEXT_PUBLIC_ values are compiled into the JavaScript at BUILD time, so on a
- * host like Render this must be set before the build runs, and changing it
- * needs a redeploy.
- *
- * Development falls back to the local backend. A production build never does:
- * a deployed page pointing at localhost would send every visitor's browser to
- * their own machine. Without a URL the public site still works (pricing shows
- * the configured list) and API calls fail with a clear message instead.
- */
-export function resolveApiUrl(env: { NEXT_PUBLIC_API_URL?: string; NODE_ENV?: string }): string {
-  const configured = env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, "");
-  if (configured) return configured;
-  return env.NODE_ENV === "production" ? "" : "http://localhost:4000/api/v1";
-}
-
-// Written out in full so Next.js can inline the values at build time.
-const apiUrl = resolveApiUrl({
-  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
-  NODE_ENV: process.env.NODE_ENV,
-});
-
 export const APP_CONFIG = {
   name: "Byapar",
   tagline: "Business & Shop Management",
-  /** A URL, not a secret. Everything NEXT_PUBLIC_ is readable by the browser. */
-  apiUrl,
-  /** False only in a production build made without NEXT_PUBLIC_API_URL. */
-  apiConfigured: apiUrl !== "",
-  tokenKey: "byapar_business_token",
+  /**
+   * The API, on this site's own origin. next.config.mjs proxies it to the
+   * Express backend, which keeps the session cookies first-party.
+   */
+  apiUrl: "/api/v1",
+  /**
+   * False only in a production build made without a backend URL (set by
+   * next.config.mjs). Without one the public site still works and API calls
+   * fail with a clear message instead of a vague 404.
+   */
+  apiConfigured: process.env.BYAPAR_API_CONFIGURED !== "false",
+  /**
+   * NOT a credential. The session lives in httpOnly cookies no script can read,
+   * so this flag is how the app knows a session is worth checking for, without
+   * asking the server on every visit to the landing page.
+   */
+  sessionHintKey: "byapar_business_signed_in",
+  /** Where the token lived before cookies. Removed on sight. */
+  legacyTokenKey: "byapar_business_token",
   /** Dispatched by the API client on a 401 so the auth provider can react. */
   unauthorizedEvent: "byapar:unauthorized",
 };

@@ -8,7 +8,7 @@ import React, {
   useState,
 } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { authApi, companyApi, gstApi, getStoredToken, ApiError } from "@/lib/api";
+import { authApi, companyApi, gstApi, hasSessionHint, setSessionHint } from "@/lib/api";
 import { isPlatformRole } from "./roles";
 import { APP_CONFIG } from "@/lib/constants";
 import { can, type Capability } from "@/lib/permissions";
@@ -57,24 +57,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   /**
-   * Establishes the session from whatever token is in storage.
+   * Establishes the session from the browser's session cookie.
    *
-   * The token alone proves nothing, so the server is asked who it belongs to.
-   * An expired or revoked token fails here with a 401 and the user is signed
-   * out - which is what makes "refresh the page" safe.
+   * The cookie is httpOnly, so this side cannot see it; the server is asked who
+   * it belongs to. A dead session fails here with a 401 and the user is signed
+   * out - which is what makes "refresh the page" safe. Without the local hint
+   * there is no session worth checking for, and the server is not bothered.
    *
    * The company and GST profile are loaded in the same breath because both are
    * context every screen needs, and neither is chosen by the client.
    */
   const loadSession = useCallback(async () => {
-    if (!getStoredToken()) {
+    if (!hasSessionHint()) {
+      setSessionHint(false); // also sweeps away a pre-cookie token
       clear();
       setIsReady(true);
       return;
     }
 
     try {
-      const currentUser = await authApi.me();
+      const currentUser = await authApi.me({ silent: true });
       setUser(currentUser);
 
       // These two are context, not the session itself. If either fails the user
@@ -86,15 +88,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setCompany(companyResult.status === "fulfilled" ? companyResult.value : null);
       setGstProfile(gstResult.status === "fulfilled" ? gstResult.value : null);
-    } catch (error) {
-      // A 401 has already cleared the token inside the API client.
-      if (!(error instanceof ApiError) || error.isUnauthorized) {
-        clear();
-      } else {
-        // The server is unreachable rather than rejecting us. Staying signed out
-        // is the safe answer; the login screen will say the server is down.
-        clear();
-      }
+    } catch {
+      // A 401 (no live session), or the server is unreachable. Either way
+      // staying signed out is the safe answer; the login screen will say if the
+      // server is down.
+      clear();
     } finally {
       setIsReady(true);
     }
@@ -138,7 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // This is a COURTESY, not a security control: the backend already refuses
       // them every shop route, and refuses shop users every platform route.
       if (isPlatformRole(result.user.role)) {
-        authApi.logout();
+        await authApi.logout();
         throw new Error(
           'This is a platform account, not a shop account. Sign in to the platform console instead.',
         );
@@ -158,9 +156,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(() => {
-    authApi.logout();
     clear();
     router.replace("/shop/login");
+    void authApi.logout();
   }, [clear, router]);
 
   const role = user?.role;

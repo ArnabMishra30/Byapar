@@ -1,4 +1,4 @@
-import { apiClient, setStoredToken, clearStoredToken } from "./client";
+import { apiClient, setSessionHint } from "./client";
 import type { ApiSuccessResponse, User } from "@/types/api";
 
 export interface LoginPayload {
@@ -7,7 +7,6 @@ export interface LoginPayload {
 }
 
 export interface LoginResult {
-  token: string;
   user: User;
 }
 
@@ -15,8 +14,8 @@ export interface LoginResult {
  * Authentication against the EXISTING Express backend.
  *
  * There is no auth backend on this side and there must never be one - no Next.js
- * API route, no session table, no second user store. The JWT the backend issues
- * is the whole session.
+ * API route, no session table, no second user store. The backend issues the
+ * session as httpOnly cookies; this code never sees a token.
  */
 export const authApi = {
   login: async (payload: LoginPayload): Promise<LoginResult> => {
@@ -24,30 +23,38 @@ export const authApi = {
       "/auth/login",
       payload,
     );
-    const result = res.data.data;
-    setStoredToken(result.token);
-    return result;
+    setSessionHint(true);
+    return res.data.data;
   },
 
   /**
    * The current user, re-read from the server.
    *
-   * This is what makes a page refresh safe: the token in storage is proof of
-   * nothing on its own, so the app asks the backend who it belongs to and lets
-   * the backend answer. An expired or revoked token gets a 401 here and the user
-   * is signed out.
+   * This is what makes a page refresh safe: the browser presents its session
+   * cookie and the backend says whose it is. An expired access token is renewed
+   * by the API client; a dead session gets a 401 here.
+   *
+   * `silent` checks without signing anybody out - used on first load, where
+   * "no session" is a normal answer, not an interruption.
    */
-  me: async (): Promise<User> => {
-    const res = await apiClient.get<ApiSuccessResponse<{ user: User }>>("/auth/me");
+  me: async ({ silent = false }: { silent?: boolean } = {}): Promise<User> => {
+    const res = await apiClient.get<ApiSuccessResponse<{ user: User }>>("/auth/me", {
+      silentUnauthorized: silent,
+    });
     return res.data.data.user;
   },
 
   /**
-   * Sign out.
-   *
-   * The backend issues stateless JWTs with no revocation list, so signing out is
-   * local by definition: drop the token. Said plainly rather than pretending a
-   * server call happened.
+   * Sign out. The backend revokes the refresh token, so the session is over on
+   * the server too - not just forgotten by this tab - and clears the cookies.
+   * Signing out locally still happens if the server cannot be reached.
    */
-  logout: () => clearStoredToken(),
+  logout: async (): Promise<void> => {
+    setSessionHint(false);
+    try {
+      await apiClient.post("/auth/logout");
+    } catch {
+      /* already signed out locally; the refresh token expires on its own */
+    }
+  },
 };

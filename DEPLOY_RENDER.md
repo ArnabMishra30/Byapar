@@ -73,7 +73,9 @@ Never put a real value in any committed file.
 | `DATABASE_URL` | Yes | `postgresql://user:pass@ep-xxx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require` | Neon → Connect → **direct (unpooled)** string, not the `-pooler` one | **Yes** |
 | `JWT_SECRET` | Yes | 64 random characters | generate (below); never reuse the local one | **Yes** |
 | `CORS_ORIGIN` | Yes | `https://byapar-admin.onrender.com,https://byapar-web.onrender.com` | the two frontend URLs, no trailing slash | No |
-| `JWT_EXPIRES_IN` | No | `1d` | default `1d` | No |
+| `TRUST_PROXY` | Yes | `2` | Render's balancer + the frontend's `/api/v1` proxy. Wrong value = every visitor shares one rate limit | No |
+| `JWT_EXPIRES_IN` | No | `15m` | access-token life; default `15m`. Remove an old `1d` value | No |
+| `REFRESH_TOKEN_TTL_DAYS` | No | `30` | how long a sign-in lasts without activity; default 30 | No |
 | `LOG_LEVEL` | No | `info` | default `info` | No |
 | `LLAMA_API_KEY` | For AI bill reading | `llx-...` | LlamaCloud (cloud.llamaindex.ai) → API Keys | **Yes** |
 | `LLAMA_BASE_URL` | No | `https://api.cloud.llamaindex.ai` | default shown | No |
@@ -99,12 +101,30 @@ Changing `JWT_SECRET` later signs every user out.
 | Variable | Service | Required | Example | Secret |
 |---|---|---|---|---|
 | `NODE_VERSION` | both | Yes | `22` | No |
-| `NEXT_PUBLIC_API_URL` | both | Yes | `https://byapar-api.onrender.com/api/v1` | No (public) |
+| `API_URL` | both | Yes | `https://byapar-api.onrender.com/api/v1` | No |
 | `NEXT_PUBLIC_CONTACT_EMAIL` | web | No | `hello@yourdomain.com` | No (public) |
 | `NEXT_PUBLIC_CONTACT_PHONE` | web | No | `+91 98765 43210` | No (public) |
 
-`NEXT_PUBLIC_*` values are compiled into the JavaScript at build time: after changing one, use
-**Save, rebuild, and deploy**. A plain restart keeps the old value.
+These values are compiled in at build time: after changing one, use **Save, rebuild, and
+deploy**. A plain restart keeps the old value. (`NEXT_PUBLIC_API_URL` from older setups is still
+accepted in place of `API_URL`.)
+
+### How the session works
+
+Browsers never call byapar-api directly. Each frontend proxies `/api/v1/*` on its own origin to
+`API_URL`, so the backend's session cookies are first-party there:
+
+* `byapar_at`: the access token (15 min), httpOnly, sent with every API call.
+* `byapar_rt`: the refresh token (30 days, rotated on every use, stored only as a hash),
+  httpOnly, sent only to `/api/v1/auth/refresh` and `/logout`.
+
+Both are `SameSite=Strict` and `Secure`, and no page script can read either. `*.onrender.com` is a
+public suffix, so the API and the frontends are different *sites*; calling the API directly would
+make these third-party cookies, which Safari drops. The proxy is what makes them work. It also
+means the admin console and the shop app hold separate sessions.
+
+After deploying this, confirm `TRUST_PROXY`: sign in, then check the API log's rate-limit
+behaviour, or temporarily log `req.ip`. It must show visitors' addresses, not one shared one.
 
 ## Deployment order
 
@@ -222,7 +242,7 @@ Service → **Settings** → **Custom Domains** → **Add Custom Domain**, then 
 Render shows (a CNAME to `<service>.onrender.com` for subdomains). Render issues the HTTPS
 certificate automatically once DNS resolves. Afterwards:
 
-1. `NEXT_PUBLIC_API_URL` on both frontends → `https://api.example.com/api/v1` → Save, rebuild, and deploy.
+1. `API_URL` on both frontends → `https://api.example.com/api/v1` → Save, rebuild, and deploy.
 2. `CORS_ORIGIN` on the backend → `https://www.example.com,https://admin.example.com` → Save and deploy.
 
 ## Troubleshooting

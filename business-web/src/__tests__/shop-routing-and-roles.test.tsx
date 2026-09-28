@@ -147,8 +147,8 @@ describe("the shop permission mirror still matches the backend", () => {
 describe("configuration carries no secrets", () => {
   // The AI key is server-side only. Nothing in this project may reference it,
   // and the one public value is an API URL, which is not a secret.
-  it("exposes only the API URL to the browser", () => {
-    expect(APP_CONFIG.apiUrl).toMatch(/^https?:\/\//);
+  it("exposes only a same-origin API path to the browser", () => {
+    expect(APP_CONFIG.apiUrl).toBe("/api/v1");
   });
 
   it("has no AI credentials anywhere in the config", () => {

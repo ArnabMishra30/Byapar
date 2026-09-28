@@ -2,8 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { User, Company } from "@/types/api";
-import { authApi, companyApi } from "@/lib/api";
-import { APP_CONFIG } from "@/lib/constants";
+import { authApi, companyApi, hasSessionHint, setSessionHint } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 interface AuthContextType {
@@ -30,15 +29,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchSession = useCallback(async () => {
     try {
-      const token = localStorage.getItem(APP_CONFIG.tokenKey);
-      if (!token) {
+      // The session is an httpOnly cookie this code cannot see. Without the hint
+      // there is none worth asking the server about.
+      if (!hasSessionHint()) {
+        setSessionHint(false); // also sweeps away a pre-cookie token
         setUser(null);
         setCompany(null);
         setIsLoading(false);
         return;
       }
 
-      const currentUser = await authApi.getMe();
+      const currentUser = await authApi.getMe({ silent: true });
       setUser(currentUser);
 
       try {
@@ -49,7 +50,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       console.warn("Session verification failed:", err);
-      localStorage.removeItem(APP_CONFIG.tokenKey);
       setUser(null);
       setCompany(null);
     } finally {
@@ -65,7 +65,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       const result = await authApi.login({ email, password });
-      localStorage.setItem(APP_CONFIG.tokenKey, result.token);
       setUser(result.user);
 
       try {
@@ -80,21 +79,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem(APP_CONFIG.tokenKey);
-    localStorage.removeItem(APP_CONFIG.companyKey);
     setUser(null);
     setCompany(null);
     router.push("/admin/login");
+    void authApi.logout();
   };
 
   const refreshUser = async () => {
-    if (!localStorage.getItem(APP_CONFIG.tokenKey)) return;
+    if (!hasSessionHint()) return;
     const refreshed = await authApi.getMe();
     setUser(refreshed);
   };
 
   const refreshCompany = async () => {
-    if (!localStorage.getItem(APP_CONFIG.tokenKey)) return;
+    if (!hasSessionHint()) return;
     const refreshedComp = await companyApi.getCurrentCompany();
     setCompany(refreshedComp);
   };

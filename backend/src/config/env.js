@@ -12,7 +12,18 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
-  JWT_EXPIRES_IN: z.string().default('1d'),
+  // Lifetime of the ACCESS token (a jsonwebtoken duration such as "15m"). Kept
+  // short on purpose: the refresh token below renews it quietly, and a short
+  // life limits what a stolen one is worth.
+  JWT_EXPIRES_IN: z.string().default('15m'),
+  /** How long a sign-in lasts without activity. Each refresh restarts the clock. */
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
+
+  // How many proxies sit in front of this server, for req.ip (and so the rate
+  // limiters). 1 = the host's load balancer only. When the browser reaches the
+  // API through a frontend's /api/v1 proxy (the default deployment), that
+  // frontend is a second hop: set 2, or every visitor shares one rate limit.
+  TRUST_PROXY: z.coerce.number().int().min(0).default(1),
 
   // Used only by the admin seed script.
   ADMIN_EMAIL: z.string().email().optional(),

@@ -427,9 +427,35 @@ model User {
   expensesPosted            Expense[]             @relation("ExpensePostedBy")
   expensesCancelled         Expense[]             @relation("ExpenseCancelledBy")
   expensesReversed          Expense[]             @relation("ExpenseReversedBy")
+  refreshTokens             RefreshToken[]
 
   @@index([companyId])
   @@map("users")
+}
+
+/// One browser session's long-lived credential. The access token is a
+/// short-lived JWT; this is what quietly renews it.
+///
+/// Only a SHA-256 hash of the token is stored, so a leaked database row cannot
+/// be replayed. Every refresh ROTATES the token: the old row is revoked and a new
+/// one issued in the same family. Presenting a revoked token again means it was
+/// copied, and the whole family (that sign-in) is revoked.
+model RefreshToken {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  /// Shared by every token descended from one sign-in.
+  familyId     String
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  /// The token this one was rotated into, when it was revoked by a refresh.
+  replacedById String?
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
 }
 
 // ---------------------------------------------------------------------------

@@ -1,33 +1,20 @@
-/**
- * Where the Express backend lives.
- *
- * NEXT_PUBLIC_ values are compiled into the JavaScript at BUILD time, so on a
- * host like Render this must be set before the build runs, and changing it
- * needs a redeploy. Development falls back to the local backend; a production
- * build never does, because a deployed console pointing at localhost would send
- * the browser to the operator's own machine.
- */
-export function resolveApiUrl(env: { NEXT_PUBLIC_API_URL?: string; NODE_ENV?: string }): string {
-  const configured = env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, "");
-  if (configured) return configured;
-  return env.NODE_ENV === "production" ? "" : "http://localhost:4000/api/v1";
-}
-
-// Written out in full so Next.js can inline the values at build time.
-const apiUrl = resolveApiUrl({
-  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
-  NODE_ENV: process.env.NODE_ENV,
-});
-
 export const APP_CONFIG = {
   name: "Byapar ERP",
   description: "Modern Business Management & Accounting Platform",
-  /** A URL, not a secret. Everything NEXT_PUBLIC_ is readable by the browser. */
-  apiUrl,
-  /** False only in a production build made without NEXT_PUBLIC_API_URL. */
-  apiConfigured: apiUrl !== "",
-  tokenKey: "byapar_access_token",
-  companyKey: "byapar_active_company_id",
+  /**
+   * The API, on this site's own origin. next.config.mjs proxies it to the
+   * Express backend, which keeps the session cookies first-party.
+   */
+  apiUrl: "/api/v1",
+  /** False only in a production build made without a backend URL (next.config.mjs). */
+  apiConfigured: process.env.BYAPAR_API_CONFIGURED !== "false",
+  /**
+   * NOT a credential. The session lives in httpOnly cookies no script can read;
+   * this flag only says a session is worth checking for.
+   */
+  sessionHintKey: "byapar_admin_signed_in",
+  /** Where the token and company id lived before cookies. Removed on sight. */
+  legacyKeys: ["byapar_access_token", "byapar_active_company_id"],
 };
 
 export const INDIAN_STATES: { code: string; name: string }[] = [

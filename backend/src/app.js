@@ -68,12 +68,14 @@ export const app = express();
 
 app.disable('x-powered-by');
 
-// In production the app runs behind the host's load balancer (Render). Trusting
-// that one hop makes req.ip the visitor's address rather than the proxy's. The
-// rate limiters below key on req.ip: without this, every user on the platform
-// would share a single limit, and 20 logins in 15 minutes would lock out all.
+// In production the app runs behind the host's load balancer (Render), and
+// browsers reach it through a frontend's /api/v1 proxy on top of that. Trusting
+// exactly those hops makes req.ip the visitor's address rather than a proxy's.
+// The rate limiters below key on req.ip: get this wrong and every user on the
+// platform shares a single limit, and 20 logins in 15 minutes lock out all.
+// TRUST_PROXY is the hop count; see env.js.
 if (isProduction) {
-  app.set('trust proxy', 1);
+  app.set('trust proxy', env.TRUST_PROXY);
 }
 
 // --- security and parsing -------------------------------------------------

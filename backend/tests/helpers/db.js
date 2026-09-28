@@ -263,7 +263,25 @@ export async function createSubscription({
   });
 }
 
-/** Logs in through the real endpoint and returns the token. */
+/**
+ * The session cookies a response set, as { name: value }. Cleared cookies come
+ * back as empty strings.
+ */
+export function cookiesFrom(response) {
+  const cookies = {};
+  for (const line of response.headers['set-cookie'] ?? []) {
+    const [pair] = line.split(';');
+    const separator = pair.indexOf('=');
+    cookies[pair.slice(0, separator)] = decodeURIComponent(pair.slice(separator + 1));
+  }
+  return cookies;
+}
+
+/**
+ * Logs in through the real endpoint and returns the access token from its
+ * session cookie. Tests send it back as a Bearer header, which the API accepts
+ * from non-browser clients.
+ */
 export async function login(app, email, password) {
   const response = await request(app).post('/api/v1/auth/login').send({ email, password });
 
@@ -271,7 +289,7 @@ export async function login(app, email, password) {
     throw new Error(`Login failed for ${email}: ${response.status} ${JSON.stringify(response.body)}`);
   }
 
-  return response.body.data.token;
+  return cookiesFrom(response).byapar_at;
 }
 
 export { prisma };

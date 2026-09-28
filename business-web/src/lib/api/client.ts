@@ -65,33 +65,68 @@ export class ApiError extends Error {
   }
 }
 
-// The token lives in localStorage, which is only reachable in the browser.
-export function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(APP_CONFIG.tokenKey);
-  } catch {
-    // Private mode, or storage disabled. Treated as "not signed in".
-    return null;
+declare module "axios" {
+  interface AxiosRequestConfig {
+    /** On a final 401, reject quietly instead of signing the user out. */
+    silentUnauthorized?: boolean;
+    /** Set internally once a request has been retried after a refresh. */
+    _retriedAfterRefresh?: boolean;
   }
 }
 
-export function setStoredToken(token: string) {
-  if (typeof window === "undefined") return;
+// THE SESSION IS NOT HERE.
+//
+// The backend keeps it in httpOnly cookies: a short-lived access token sent with
+// every call, and a refresh token sent only to /auth/refresh. No script on this
+// page - ours or an injected one - can read either. What this side keeps is a
+// HINT that a session probably exists, so a visitor to the landing page is not
+// made to ask the server "am I signed in?" on every page view.
+
+export function hasSessionHint(): boolean {
+  if (typeof window === "undefined") return false;
   try {
-    window.localStorage.setItem(APP_CONFIG.tokenKey, token);
+    return window.localStorage.getItem(APP_CONFIG.sessionHintKey) === "1";
   } catch {
-    /* nothing we can do; the session simply will not survive a reload */
+    // Private mode, or storage disabled: check with the server to be safe.
+    return true;
   }
 }
 
-export function clearStoredToken() {
+export function setSessionHint(signedIn: boolean) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(APP_CONFIG.tokenKey);
+    if (signedIn) window.localStorage.setItem(APP_CONFIG.sessionHintKey, "1");
+    else window.localStorage.removeItem(APP_CONFIG.sessionHintKey);
+    // The bearer token that used to live here. Gone for good.
+    window.localStorage.removeItem(APP_CONFIG.legacyTokenKey);
   } catch {
     /* ignore */
   }
+}
+
+/** These establish or end the session; a 401 from them is an answer, not an expiry. */
+const SESSION_ENDPOINTS = ["/auth/login", "/auth/refresh", "/auth/logout"];
+
+/**
+ * One refresh at a time. When the access token expires, every request in flight
+ * gets a 401 together; they all wait on the same refresh instead of racing to
+ * rotate the refresh token.
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+
+function refreshSession(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = axios
+      .post(`${APP_CONFIG.apiUrl}/auth/refresh`, null, { timeout: 15000 })
+      .then(
+        () => true,
+        () => false,
+      )
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
 }
 
 apiClient.interceptors.request.use(
@@ -107,36 +142,44 @@ apiClient.interceptors.request.use(
         ),
       );
     }
-    const token = getStoredToken();
-    if (token && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+    // The session cookies are attached by the browser: same origin, httpOnly.
     return config;
   },
   (error) => Promise.reject(error),
 );
 
 /**
- * Turns every failure into an ApiError, and signs the user out on a 401.
+ * Turns every failure into an ApiError. On a 401 it first tries to renew the
+ * session once, then retries the request; only if that fails is the user
+ * signed out.
  *
  * The redirect is deliberately NOT done here with window.location. A hard
- * navigation throws away React state and any half-typed form. Instead the token
- * is cleared and an event is dispatched; the auth provider listens and moves the
- * user to /login through the router, preserving where they were trying to go.
+ * navigation throws away React state and any half-typed form. Instead an event
+ * is dispatched; the auth provider listens and moves the user to /login through
+ * the router, preserving where they were trying to go.
  */
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<ApiErrorResponse>) => {
+  async (error: AxiosError<ApiErrorResponse>) => {
     // Already normalised (the request interceptor refused to send it).
     if ((error as unknown) instanceof ApiError) return Promise.reject(error);
 
     const status = error.response?.status ?? 0;
     const body = error.response?.data;
+    const config = error.config;
 
-    if (status === 401) {
-      clearStoredToken();
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent(APP_CONFIG.unauthorizedEvent));
+    if (status === 401 && config) {
+      const isSessionEndpoint = SESSION_ENDPOINTS.some((path) => config.url?.endsWith(path));
+
+      if (!isSessionEndpoint && !config._retriedAfterRefresh && (await refreshSession())) {
+        return apiClient({ ...config, _retriedAfterRefresh: true });
+      }
+
+      if (!isSessionEndpoint) {
+        setSessionHint(false);
+        if (!config.silentUnauthorized && typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent(APP_CONFIG.unauthorizedEvent));
+        }
       }
     }
 

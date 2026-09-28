@@ -39,3 +39,40 @@ export function findAuthContextById(id) {
 export function updateLastLogin(id) {
   return prisma.user.update({ where: { id }, data: { lastLoginAt: new Date() } });
 }
+
+// --- refresh tokens ---------------------------------------------------------
+// Only hashes are stored; the plaintext token exists in the browser's cookie
+// and nowhere else.
+
+export function createRefreshToken(data, tx = prisma) {
+  return tx.refreshToken.create({ data });
+}
+
+export function findRefreshTokenByHash(tokenHash) {
+  return prisma.refreshToken.findUnique({ where: { tokenHash } });
+}
+
+/**
+ * Revokes one token, but only if nobody else revoked it first.
+ * Returns the number of rows changed: 0 means another request won the race.
+ */
+export async function revokeRefreshTokenIfActive(id, replacedById, tx = prisma) {
+  const result = await tx.refreshToken.updateMany({
+    where: { id, revokedAt: null },
+    data: { revokedAt: new Date(), replacedById },
+  });
+  return result.count;
+}
+
+/** Ends one sign-in: every token descended from it. */
+export function revokeRefreshTokenFamily(familyId) {
+  return prisma.refreshToken.updateMany({
+    where: { familyId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
+
+/** Housekeeping on sign-in, so dead rows do not pile up forever. */
+export function deleteExpiredRefreshTokens(userId) {
+  return prisma.refreshToken.deleteMany({ where: { userId, expiresAt: { lt: new Date() } } });
+}

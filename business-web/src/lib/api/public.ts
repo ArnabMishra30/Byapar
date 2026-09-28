@@ -4,9 +4,9 @@ import { APP_CONFIG } from "@/lib/constants";
 // THE ONLY API CALL MADE BY A VISITOR WHO IS NOT SIGNED IN.
 //
 // It uses a bare axios instance rather than the app's `apiClient`, on purpose:
-// that client attaches a bearer token and redirects to the login screen on a
-// 401. Neither behaviour makes sense on a marketing page, and a visitor with a
-// stale token in localStorage should not be bounced out of the pricing section.
+// that client renews the session and redirects to the login screen on a 401.
+// Neither behaviour makes sense on a marketing page, and a visitor with a stale
+// session should not be bounced out of the pricing section.
 
 export interface PublicPlan {
   id: string;
