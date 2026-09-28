@@ -117,3 +117,26 @@ html:has([data-marketing-site]) {
     scroll-behavior: auto;
   }
 }
+
+/*
+ * Printing a document (Print / Download as PDF): only the document goes on
+ * paper. The app shell, buttons, tabs and anything marked data-print-hide stay
+ * on screen.
+ */
+@media print {
+  [data-print-hide],
+  [data-app-chrome] {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  .shadow-sm,
+  .shadow {
+    box-shadow: none !important;
+  }
+}

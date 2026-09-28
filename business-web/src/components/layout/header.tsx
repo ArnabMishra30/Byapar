@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { LogOut, User as UserIcon } from "lucide-react";
 import { MobileNav } from "./mobile-nav";
+import { CommandMenu } from "./command-menu";
 import { useAuth } from "@/lib/auth/auth-context";
 import { roleLabel } from "@/lib/auth/roles";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -22,7 +23,10 @@ export function Header() {
   const { user, company, logout, isAdmin } = useAuth();
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur sm:px-5">
+    <header
+      data-app-chrome
+      className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur sm:px-5"
+    >
       <MobileNav />
 
       {/* The company is shown, never chosen: the backend decides it from the
@@ -32,6 +36,8 @@ export function Header() {
           {company?.name ?? "Byapar"}
         </p>
       </div>
+
+      <CommandMenu />
 
       <Badge variant={isAdmin ? "default" : "secondary"} className="hidden sm:inline-flex">
         {roleLabel(user?.role)}

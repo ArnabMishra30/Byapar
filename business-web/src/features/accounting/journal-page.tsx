@@ -9,6 +9,7 @@ import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-r
 import { Money } from "@/components/shared/money";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDate, startOfMonth } from "@/lib/utils";
+import { AccountingTabs } from "./accounting-tabs";
 
 /**
  * The journal and the ledger.
@@ -126,6 +127,7 @@ export function JournalPage() {
         title="Journal & ledger"
         description="The double-entry record behind every document."
       />
+      <AccountingTabs />
 
       <DateRangeFilter value={range} onChange={setRange} />
 
@@ -144,19 +146,19 @@ export function JournalPage() {
             error={journal.error}
             onRetry={() => journal.refetch()}
             mobileCard={(row) => (
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">
-                {SOURCE_LABEL[String(row.sourceType)] ?? String(row.sourceType)}
-              </p>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {formatDate(String(row.entryDate))} · {String(row.journalNumber)}
-              </p>
-            </div>
-            <Money value={String(row.totalDebit ?? "0")} className="shrink-0 text-sm font-semibold" />
-          </div>
-        )}
-        pagination={
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {SOURCE_LABEL[String(row.sourceType)] ?? String(row.sourceType)}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {formatDate(String(row.entryDate))} · {String(row.journalNumber)}
+                  </p>
+                </div>
+                <Money value={String(row.totalDebit ?? "0")} className="shrink-0 text-sm font-semibold" />
+              </div>
+            )}
+            pagination={
               journal.data?.pagination
                 ? {
                     page: journal.data.pagination.page,
@@ -179,6 +181,31 @@ export function JournalPage() {
             isLoading={ledger.isLoading}
             error={ledger.error}
             onRetry={() => ledger.refetch()}
+            mobileCard={(row) => {
+              const account = row.account as { code?: string; name?: string } | undefined;
+              return (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{account?.name ?? "—"}</p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {formatDate(String(row.date))} · {String(row.description ?? "—")}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right text-xs">
+                    {row.debit !== "0.00" ? (
+                      <p>
+                        Dr <Money value={String(row.debit)} className="text-sm font-semibold" />
+                      </p>
+                    ) : null}
+                    {row.credit !== "0.00" ? (
+                      <p>
+                        Cr <Money value={String(row.credit)} className="text-sm font-semibold" />
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            }}
             pagination={
               ledger.data?.pagination
                 ? {

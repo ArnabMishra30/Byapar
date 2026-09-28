@@ -38,8 +38,18 @@ const nextConfig = {
   // The shop login lives at /shop/login. /login is where people guess it is,
   // so it forwards there rather than 404ing. Temporary, in case /login ever
   // needs to become a real page.
+  //
+  // The rest keep old bookmarks working after the shop routes were reorganised.
   async redirects() {
-    return [{ source: "/login", destination: "/shop/login", permanent: false }];
+    return [
+      { source: "/login", destination: "/shop/login", permanent: false },
+      { source: "/shop/inventory", destination: "/shop/stock", permanent: false },
+      { source: "/shop/credit", destination: "/shop/credit-book", permanent: false },
+      { source: "/shop/money-in", destination: "/shop/money/received", permanent: false },
+      { source: "/shop/money-out", destination: "/shop/money/paid", permanent: false },
+      { source: "/shop/reports", destination: "/shop/reports/sales", permanent: false },
+      { source: "/shop/money", destination: "/shop/money/received", permanent: false },
+    ];
   },
 
   // Same-origin API: see api-target.mjs for why.

@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { render, screen } from "@testing-library/react";
 import { can, whyNot } from "@/lib/permissions";
 import { visibleSections } from "@/components/layout/nav-items";
@@ -26,11 +28,12 @@ describe("permissions mirror the backend", () => {
     }
   });
 
-  it("2. lets staff draft a sale, a purchase and an expense", () => {
-    // The backend allows POST /sales, /purchases and /expenses for STAFF.
+  it("2. lets staff draft a sale and an expense, but not a purchase", () => {
+    // The backend allows POST /sales and /expenses for STAFF. POST /purchases
+    // is requireRole('ADMIN') - drafts included - so the mirror must refuse it.
     expect(can("STAFF", "sales.draft")).toBe(true);
-    expect(can("STAFF", "purchases.draft")).toBe(true);
     expect(can("STAFF", "expenses.draft")).toBe(true);
+    expect(can("STAFF", "purchases.draft")).toBe(false);
   });
 
   it("3. stops staff POSTING a document, because the backend does", () => {
@@ -121,7 +124,7 @@ describe("navigation adapts to the business", () => {
   it("13. still gives staff the working parts of the shop", () => {
     const hrefs = visibleSections(false, false).flatMap((s) => s.items.map((i) => i.href));
 
-    for (const href of ["/shop/dashboard", "/shop/sales", "/shop/purchases", "/shop/inventory", "/shop/credit", "/shop/settings"]) {
+    for (const href of ["/shop/dashboard", "/shop/sales", "/shop/purchases", "/shop/stock", "/shop/credit-book", "/shop/settings"]) {
       expect(hrefs).toContain(href);
     }
   });
@@ -221,15 +224,15 @@ describe("navigation covers the whole application", () => {
       "/shop/dashboard",
       "/shop/sales",
       "/shop/purchases",
-      "/shop/inventory",
+      "/shop/stock",
       "/shop/customers",
       "/shop/suppliers",
-      "/shop/credit",
-      "/shop/money-in",
-      "/shop/money-out",
+      "/shop/credit-book",
+      "/shop/money/received",
+      "/shop/money/paid",
       "/shop/expenses",
       "/shop/cash-bank",
-      "/shop/reports",
+      "/shop/reports/sales",
       "/shop/accounting/accounts",
       "/shop/accounting/journal",
       "/shop/accounting/opening-balance",
@@ -240,6 +243,14 @@ describe("navigation covers the whole application", () => {
     ]) {
       expect(hrefs).toContain(expected);
     }
+  });
+
+  it("26b. has a real page on disk behind every destination", () => {
+    const appDir = path.join(process.cwd(), "src", "app", "shop", "(app)");
+    const missing = NAVIGATION.flatMap((s) => s.items.map((i) => i.href)).filter(
+      (href) => !fs.existsSync(path.join(appDir, href.replace(/^\/shop\//, ""), "page.tsx")),
+    );
+    expect(missing).toEqual([]);
   });
 
   it("27. carries no 'coming soon' marker anywhere", () => {

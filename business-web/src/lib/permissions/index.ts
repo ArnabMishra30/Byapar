@@ -73,6 +73,10 @@ export type Capability =
 
 const ADMIN_ONLY: ReadonlySet<Capability> = new Set<Capability>([
   "sales.post",
+  // Every purchase write is ADMIN on the backend, drafts included
+  // (purchase.routes.js: POST /, PATCH /:id, /post and /cancel all
+  // requireRole('ADMIN')). Unlike a sale, staff cannot even prepare one.
+  "purchases.draft",
   "purchases.post",
   "expenses.post",
   "money.receive",
@@ -103,6 +107,8 @@ export function can(role: UserRole | undefined | null, capability: Capability): 
  */
 export function whyNot(capability: Capability): string {
   switch (capability) {
+    case "purchases.draft":
+      return "Only an admin can record or change a purchase.";
     case "sales.post":
     case "purchases.post":
     case "expenses.post":

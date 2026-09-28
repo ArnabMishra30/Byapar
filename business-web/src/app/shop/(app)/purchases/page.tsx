@@ -1,5 +1,5 @@
-import { DocumentList } from "@/features/documents/document-list";
+import { PurchasesHome } from "@/features/purchases/purchases-home";
 
 export default function Page() {
-  return <DocumentList kind="purchase" />;
+  return <PurchasesHome />;
 }

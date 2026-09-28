@@ -93,7 +93,8 @@ export function EntitySelect({
         onClick={() => setOpen(true)}
         aria-invalid={invalid}
         className={cn(
-          "w-full justify-between font-normal",
+          // 44px on a phone: this picker is tapped constantly at a counter.
+          "min-h-[44px] w-full justify-between font-normal sm:min-h-0",
           !value && "text-muted-foreground",
           invalid && "border-destructive",
         )}

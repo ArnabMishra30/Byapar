@@ -52,11 +52,73 @@ export const ROUTES = {
   /** The shop application. */
   login: `${SHOP_PREFIX}/login`,
   dashboard: `${SHOP_PREFIX}/dashboard`,
-  sales: `${SHOP_PREFIX}/sales`,
-  purchases: `${SHOP_PREFIX}/purchases`,
+  quickBilling: `${SHOP_PREFIX}/quick-billing`,
   bills: `${SHOP_PREFIX}/bills`,
+
+  sales: `${SHOP_PREFIX}/sales`,
+  salesInvoices: `${SHOP_PREFIX}/sales/invoices`,
+  newSale: `${SHOP_PREFIX}/sales/new`,
+  salesReturns: `${SHOP_PREFIX}/sales/returns`,
+  newSalesReturn: `${SHOP_PREFIX}/sales/returns/new`,
+
+  purchases: `${SHOP_PREFIX}/purchases`,
+  purchaseBills: `${SHOP_PREFIX}/purchases/bills`,
+  newPurchase: `${SHOP_PREFIX}/purchases/new`,
+  purchaseReturns: `${SHOP_PREFIX}/purchases/returns`,
+  newPurchaseReturn: `${SHOP_PREFIX}/purchases/returns/new`,
+  supplierPayables: `${SHOP_PREFIX}/purchases/payables`,
+
+  stock: `${SHOP_PREFIX}/stock`,
+  products: `${SHOP_PREFIX}/stock/products`,
+  stockIn: `${SHOP_PREFIX}/stock/in`,
+  stockOut: `${SHOP_PREFIX}/stock/out`,
+  stockAdjustments: `${SHOP_PREFIX}/stock/adjustments`,
+  lowStock: `${SHOP_PREFIX}/stock/low-stock`,
+
+  customers: `${SHOP_PREFIX}/customers`,
+  newCustomer: `${SHOP_PREFIX}/customers/new`,
+  importCustomers: `${SHOP_PREFIX}/customers/import`,
+  creditBook: `${SHOP_PREFIX}/credit-book`,
+  suppliers: `${SHOP_PREFIX}/suppliers`,
+
+  moneyReceived: `${SHOP_PREFIX}/money/received`,
+  moneyPaid: `${SHOP_PREFIX}/money/paid`,
+  expenses: `${SHOP_PREFIX}/expenses`,
+  cashBank: `${SHOP_PREFIX}/cash-bank`,
+
+  salesReport: `${SHOP_PREFIX}/reports/sales`,
+  purchaseReport: `${SHOP_PREFIX}/reports/purchases`,
+  stockReport: `${SHOP_PREFIX}/reports/stock`,
+  customerReport: `${SHOP_PREFIX}/reports/customers`,
+  supplierReport: `${SHOP_PREFIX}/reports/suppliers`,
+  expenseReport: `${SHOP_PREFIX}/reports/expenses`,
+  profitLoss: `${SHOP_PREFIX}/reports/profit-loss`,
+  gstReport: `${SHOP_PREFIX}/reports/gst`,
+  gstRegistration: `${SHOP_PREFIX}/gst`,
+
+  settings: `${SHOP_PREFIX}/settings`,
+  staff: `${SHOP_PREFIX}/settings/staff`,
+  profile: `${SHOP_PREFIX}/profile`,
   subscription: `${SHOP_PREFIX}/subscription`,
+  recycleBin: `${SHOP_PREFIX}/recycle-bin`,
+
+  accounts: `${SHOP_PREFIX}/accounting/accounts`,
+  journal: `${SHOP_PREFIX}/accounting/journal`,
+  openingBalance: `${SHOP_PREFIX}/accounting/opening-balance`,
+  periods: `${SHOP_PREFIX}/accounting/periods`,
 } as const;
+
+/** Detail pages, which need an id. */
+export const DETAIL_ROUTES = {
+  sale: (id: string) => `${SHOP_PREFIX}/sales/${id}`,
+  salesReturn: (id: string) => `${SHOP_PREFIX}/sales/returns/${id}`,
+  purchase: (id: string) => `${SHOP_PREFIX}/purchases/${id}`,
+  purchaseReturn: (id: string) => `${SHOP_PREFIX}/purchases/returns/${id}`,
+  product: (id: string) => `${SHOP_PREFIX}/stock/products/${id}`,
+  customer: (id: string) => `${SHOP_PREFIX}/customers/${id}`,
+  supplier: (id: string) => `${SHOP_PREFIX}/suppliers/${id}`,
+  bill: (id: string) => `${SHOP_PREFIX}/bills/${id}`,
+};
 
 // --- navigation -------------------------------------------------------------
 
@@ -82,7 +144,22 @@ export type NavIcon =
   | "ArrowDownLeft"
   | "ArrowUpRight"
   | "ScanLine"
-  | "BadgeCheck";
+  | "BadgeCheck"
+  | "Zap"
+  | "FileText"
+  | "Undo2"
+  | "Package"
+  | "PackagePlus"
+  | "PackageMinus"
+  | "SlidersHorizontal"
+  | "TriangleAlert"
+  | "UserPlus"
+  | "Upload"
+  | "HandCoins"
+  | "PieChart"
+  | "TrendingUp"
+  | "Trash2"
+  | "Warehouse";
 
 export interface NavItem {
   /** What a shopkeeper calls it - not what an accountant calls it. */
@@ -105,66 +182,119 @@ export interface NavSection {
 /**
  * The navigation architecture.
  *
+ * ONLY WHAT THE BACKEND CAN DO. A destination is listed only when a real API
+ * backs it. Documents the backend has no model for yet (estimates, sales
+ * orders, delivery challans, purchase orders, stock transfers, expiry) are not
+ * listed; each module's landing page says plainly what is not available.
+ *
  * Business language at the top where a shop owner works, accounting language
- * lower down where an accountant does. "Customer Credit" and "Supplier Dues"
- * are the same numbers the ledger calls receivables and payables - the words
- * change, the figures do not.
+ * at the bottom where an accountant does. "Customer owes you" and "You owe
+ * supplier" are the same numbers the ledger calls receivables and payables -
+ * the words change, the figures do not.
  */
 export const NAVIGATION: NavSection[] = [
   {
     title: "Overview",
-    items: [{ title: "Dashboard", href: `${SHOP_PREFIX}/dashboard`, icon: "LayoutDashboard" }],
-  },
-  {
-    title: "Business",
     items: [
-      { title: "Sales", href: `${SHOP_PREFIX}/sales`, icon: "Receipt" },
-      { title: "Purchases", href: `${SHOP_PREFIX}/purchases`, icon: "ShoppingCart" },
-      { title: "Bill Import", href: `${SHOP_PREFIX}/bills`, icon: "ScanLine" },
-      { title: "Stock", href: `${SHOP_PREFIX}/inventory`, icon: "Boxes" },
-      { title: "Customers", href: `${SHOP_PREFIX}/customers`, icon: "UserCheck" },
-      { title: "Suppliers", href: `${SHOP_PREFIX}/suppliers`, icon: "Truck" },
-      { title: "Credit Book", href: `${SHOP_PREFIX}/credit`, icon: "BookOpen" },
-      { title: "Money Received", href: `${SHOP_PREFIX}/money-in`, icon: "ArrowDownLeft" },
-      { title: "Money Paid", href: `${SHOP_PREFIX}/money-out`, icon: "ArrowUpRight" },
-      { title: "Expenses", href: `${SHOP_PREFIX}/expenses`, icon: "Wallet" },
-      { title: "Cash & Bank", href: `${SHOP_PREFIX}/cash-bank`, icon: "Landmark" },
-      { title: "Reports", href: `${SHOP_PREFIX}/reports`, icon: "BarChart3" },
+      { title: "Home", href: ROUTES.dashboard, icon: "LayoutDashboard" },
+      { title: "Quick Billing", href: ROUTES.quickBilling, icon: "Zap" },
+      { title: "Bill Import", href: ROUTES.bills, icon: "ScanLine" },
     ],
   },
   {
-    title: "Accounting",
+    title: "Sales",
     items: [
-      { title: "Accounts", href: `${SHOP_PREFIX}/accounting/accounts`, icon: "BookMarked" },
-      { title: "Journal & Ledger", href: `${SHOP_PREFIX}/accounting/journal`, icon: "Scale" },
-      {
-        title: "Opening Balance",
-        href: `${SHOP_PREFIX}/accounting/opening-balance`,
-        icon: "PlayCircle",
-        adminOnly: true,
-      },
-      {
-        title: "Accounting Periods",
-        href: `${SHOP_PREFIX}/accounting/periods`,
-        icon: "CalendarRange",
-        adminOnly: true,
-      },
+      { title: "Sales", href: ROUTES.sales, icon: "Receipt" },
+      { title: "Invoices", href: ROUTES.salesInvoices, icon: "FileText" },
+      { title: "Sales Returns", href: ROUTES.salesReturns, icon: "Undo2" },
     ],
   },
   {
+    title: "Purchase",
+    items: [
+      { title: "Purchases", href: ROUTES.purchases, icon: "ShoppingCart" },
+      { title: "Purchase Bills", href: ROUTES.purchaseBills, icon: "FileText" },
+      { title: "Purchase Returns", href: ROUTES.purchaseReturns, icon: "Undo2" },
+      { title: "Supplier Payables", href: ROUTES.supplierPayables, icon: "HandCoins" },
+    ],
+  },
+  {
+    title: "Stock & Inventory",
+    items: [
+      { title: "Stock Dashboard", href: ROUTES.stock, icon: "Boxes" },
+      { title: "Products / Items", href: ROUTES.products, icon: "Package" },
+      { title: "Stock In", href: ROUTES.stockIn, icon: "PackagePlus" },
+      { title: "Stock Out", href: ROUTES.stockOut, icon: "PackageMinus" },
+      { title: "Stock Adjustments", href: ROUTES.stockAdjustments, icon: "SlidersHorizontal" },
+      { title: "Low Stock", href: ROUTES.lowStock, icon: "TriangleAlert" },
+    ],
+  },
+  {
+    title: "Customers",
+    items: [
+      { title: "Customers", href: ROUTES.customers, icon: "UserCheck" },
+      { title: "Add Customer", href: ROUTES.newCustomer, icon: "UserPlus", adminOnly: true },
+      {
+        title: "Bulk Upload Customers",
+        href: ROUTES.importCustomers,
+        icon: "Upload",
+        adminOnly: true,
+      },
+      { title: "Credit Book", href: ROUTES.creditBook, icon: "BookOpen" },
+    ],
+  },
+  {
+    title: "Suppliers",
+    items: [{ title: "Suppliers", href: ROUTES.suppliers, icon: "Truck" }],
+  },
+  {
+    title: "Money",
+    items: [
+      { title: "Money Received", href: ROUTES.moneyReceived, icon: "ArrowDownLeft" },
+      { title: "Money Paid", href: ROUTES.moneyPaid, icon: "ArrowUpRight" },
+      { title: "Expenses", href: ROUTES.expenses, icon: "Wallet" },
+      { title: "Cash & Bank", href: ROUTES.cashBank, icon: "Landmark" },
+    ],
+  },
+  {
+    title: "Reports",
+    items: [
+      { title: "Sales Reports", href: ROUTES.salesReport, icon: "TrendingUp" },
+      { title: "Purchase Reports", href: ROUTES.purchaseReport, icon: "BarChart3" },
+      { title: "Stock Reports", href: ROUTES.stockReport, icon: "Warehouse" },
+      { title: "Customer Reports", href: ROUTES.customerReport, icon: "UserCheck" },
+      { title: "Supplier Reports", href: ROUTES.supplierReport, icon: "Truck" },
+      { title: "Expense Reports", href: ROUTES.expenseReport, icon: "Wallet" },
+      { title: "Profit & Loss", href: ROUTES.profitLoss, icon: "PieChart" },
+    ],
+  },
+  {
+    // Only for a GST-registered shop. A local shop never sees a tax menu.
     title: "Tax",
     requireGst: true,
     items: [
-      { title: "GST", href: `${SHOP_PREFIX}/gst`, icon: "ShieldCheck", requireGst: true },
+      { title: "GST Reports", href: ROUTES.gstReport, icon: "ShieldCheck", requireGst: true },
+      { title: "GST Registration", href: ROUTES.gstRegistration, icon: "BadgeCheck", requireGst: true },
     ],
   },
   {
     title: "Settings",
     items: [
-      { title: "Business Settings", href: `${SHOP_PREFIX}/settings`, icon: "Settings" },
-      { title: "Subscription", href: `${SHOP_PREFIX}/subscription`, icon: "BadgeCheck" },
-      { title: "Staff", href: `${SHOP_PREFIX}/settings/staff`, icon: "Users", adminOnly: true },
-      { title: "My Profile", href: `${SHOP_PREFIX}/profile`, icon: "UserCog" },
+      { title: "Business Settings", href: ROUTES.settings, icon: "Settings" },
+      { title: "Staff", href: ROUTES.staff, icon: "Users", adminOnly: true },
+      { title: "My Profile", href: ROUTES.profile, icon: "UserCog" },
+      { title: "Subscription", href: ROUTES.subscription, icon: "BadgeCheck" },
+      { title: "Recycle Bin", href: ROUTES.recycleBin, icon: "Trash2" },
+    ],
+  },
+  {
+    // For the accountant: kept last and out of a shopkeeper's way.
+    title: "Accountant",
+    items: [
+      { title: "Accounts", href: ROUTES.accounts, icon: "BookMarked" },
+      { title: "Journal & Ledger", href: ROUTES.journal, icon: "Scale" },
+      { title: "Opening Balance", href: ROUTES.openingBalance, icon: "PlayCircle", adminOnly: true },
+      { title: "Accounting Periods", href: ROUTES.periods, icon: "CalendarRange", adminOnly: true },
     ],
   },
 ];

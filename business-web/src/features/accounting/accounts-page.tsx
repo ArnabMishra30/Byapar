@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { DataTable, useListState, type Column } from "@/components/shared/data-table";
 import { Money } from "@/components/shared/money";
 import { Badge } from "@/components/ui/badge";
+import { AccountingTabs } from "./accounting-tabs";
 
 /**
  * The chart of accounts.
@@ -87,6 +88,7 @@ export function AccountsPage() {
           ) : null
         }
       />
+      <AccountingTabs />
 
       <DataTable
         columns={columns}
@@ -98,6 +100,24 @@ export function AccountsPage() {
         search={list.search}
         onSearchChange={list.setSearch}
         searchPlaceholder="Search accounts…"
+        mobileCard={(row) => {
+          const balance = balanceByCode.get(String(row.code));
+          return (
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate font-medium">{String(row.name)}</p>
+                <p className="text-xs text-muted-foreground">
+                  {String(row.code)} · {TYPE_LABEL[String(row.type)] ?? String(row.type)}
+                </p>
+              </div>
+              {balance ? (
+                <Money value={balance} tone="auto" className="shrink-0 font-semibold" />
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
+          );
+        }}
         pagination={
           accounts.data?.pagination
             ? {

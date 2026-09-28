@@ -12,6 +12,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatDate } from "@/lib/utils";
+import { NotAvailable } from "@/components/shared/not-available";
+import { AccountingTabs } from "./accounting-tabs";
 
 /**
  * Opening balances: the books a business already had when it started here.
@@ -54,8 +56,20 @@ export function OpeningBalancePage() {
     enabled: status.data?.initialized === true,
   });
 
-  if (status.isLoading) return <LoadingState rows={3} />;
-  if (status.error) return <ErrorState error={status.error} onRetry={() => status.refetch()} />;
+  // The header and tabs stay put while loading or on error, like every page.
+  if (status.isLoading || status.error) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Opening balances" description="Start with the books you already have." />
+        <AccountingTabs />
+        {status.error ? (
+          <ErrorState error={status.error} onRetry={() => status.refetch()} />
+        ) : (
+          <LoadingState rows={3} />
+        )}
+      </div>
+    );
+  }
 
   if (!status.data?.initialized) {
     return (
@@ -64,17 +78,21 @@ export function OpeningBalancePage() {
           title="Opening balances"
           description="Start with the books you already have."
         />
+        <AccountingTabs />
         <EmptyState
           icon={PlayCircle}
           title="No opening balances set"
           description="If your business was running before you started using Byapar, an opening balance records what you had on day one - cash, bank, stock, and who owed whom. Without it, your books start from zero, which is correct for a brand new business."
         />
-        <Card>
-          <CardContent className="p-4 text-sm text-muted-foreground">
-            Setting opening balances is a one-time step and is not yet available from this screen.
-            It can be done through the API, and a guided setup is coming.
-          </CardContent>
-        </Card>
+        <NotAvailable
+          features={[
+            {
+              title: "Set opening balances from this screen",
+              description:
+                "Recording day-one cash, bank, stock and dues is a one-time step that this screen cannot do yet. Ask your accountant or Byapar support to set it up.",
+            },
+          ]}
+        />
       </div>
     );
   }
@@ -90,6 +108,7 @@ export function OpeningBalancePage() {
           </Badge>
         }
       />
+      <AccountingTabs />
 
       <Card>
         <CardHeader className="pb-2">
@@ -107,6 +126,8 @@ export function OpeningBalancePage() {
 
       {details.isLoading ? (
         <LoadingState rows={2} />
+      ) : details.error ? (
+        <ErrorState error={details.error} onRetry={() => details.refetch()} />
       ) : details.data ? (
         <>
           <Card>

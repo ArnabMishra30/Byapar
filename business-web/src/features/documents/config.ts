@@ -1,5 +1,14 @@
-import { salesApi, purchasesApi, type ListParams, type ListResult } from "@/lib/api";
+import {
+  salesApi,
+  purchasesApi,
+  registersApi,
+  type ListParams,
+  type ListResult,
+  type RegisterParams,
+} from "@/lib/api";
 import type { Capability } from "@/lib/permissions";
+import { DETAIL_ROUTES, ROUTES } from "@/lib/constants";
+import { fromPurchaseRegister, fromSalesRegister, type RegisterPage } from "./doc-helpers";
 
 /**
  * The lifecycle both documents share, typed loosely on purpose.
@@ -28,12 +37,28 @@ export type DocKind = "sale" | "purchase";
 
 export interface DocConfig {
   kind: DocKind;
+  /** "Sale" / "Purchase" - used inside sentences. */
+  noun: string;
+  /** "Invoices" / "Purchase bills" - the list page. */
   listTitle: string;
   listDescription: string;
   newTitle: string;
-  backHref: string;
-  detailHref: (id: string) => string;
+  editTitle: string;
+
+  homeHref: string;
+  listHref: string;
   newHref: string;
+  detailHref: (id: string) => string;
+  editHref: (id: string) => string;
+  /** Where "record a payment" goes, with the party pre-filled. */
+  paymentHref: (partyId: string) => string;
+  paymentLabel: string;
+  paymentCapability: Capability;
+  /** Where "return items" goes, with this document pre-selected. */
+  returnHref: (docId: string) => string;
+  returnCapability: Capability;
+  /** "?customerId" / "?supplierId" - the prefill a new document accepts. */
+  prefillParam: "customerId" | "supplierId";
 
   /** "customer" or "supplier" - which party this document names. */
   partyKind: "customer" | "supplier";
@@ -54,21 +79,37 @@ export interface DocConfig {
   draftCapability: Capability;
   postCapability: Capability;
 
+  /** What a posted document is called, and how it is undone. */
+  completedNote: string;
+
   emptyTitle: string;
   emptyDescription: string;
 
   api: DocApi;
+  /** Posted documents with paid / due, normalised to one row shape. */
+  register: (p: RegisterParams) => Promise<RegisterPage>;
 }
 
 export const DOC_CONFIG: Record<DocKind, DocConfig> = {
   sale: {
     kind: "sale",
-    listTitle: "Sales",
+    noun: "Sale",
+    listTitle: "Invoices",
     listDescription: "Bills you gave customers, and what they still owe.",
     newTitle: "New sale",
-    backHref: "/shop/sales",
-    detailHref: (id) => `/shop/sales/${id}`,
-    newHref: "/shop/sales/new",
+    editTitle: "Edit sale draft",
+    homeHref: ROUTES.sales,
+    listHref: ROUTES.salesInvoices,
+    newHref: ROUTES.newSale,
+    detailHref: (id) => DETAIL_ROUTES.sale(id),
+    editHref: (id) => `${DETAIL_ROUTES.sale(id)}/edit`,
+    paymentHref: (partyId) => `${ROUTES.moneyReceived}?customerId=${encodeURIComponent(partyId)}`,
+    paymentLabel: "Record payment",
+    paymentCapability: "money.receive",
+    returnHref: (docId) => `${ROUTES.newSalesReturn}?salesInvoiceId=${encodeURIComponent(docId)}`,
+    // Drafting a sales return is open to staff; posting it is admin-only.
+    returnCapability: "sales.draft",
+    prefillParam: "customerId",
     partyKind: "customer",
     partyLabel: "Customer",
     partyField: "customerId",
@@ -79,18 +120,31 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
     dateField: "invoiceDate",
     draftCapability: "sales.draft",
     postCapability: "sales.post",
+    completedNote: "Completed sales can't be edited. Use a sales return to undo.",
     emptyTitle: "No sales yet",
     emptyDescription: "Make your first bill and it will show up here.",
     api: salesApi as unknown as DocApi,
+    register: async (p) => fromSalesRegister(await registersApi.sales(p)),
   },
   purchase: {
     kind: "purchase",
-    listTitle: "Purchases",
+    noun: "Purchase",
+    listTitle: "Purchase bills",
     listDescription: "Bills from your suppliers, and what you still owe.",
     newTitle: "New purchase",
-    backHref: "/shop/purchases",
-    detailHref: (id) => `/shop/purchases/${id}`,
-    newHref: "/shop/purchases/new",
+    editTitle: "Edit purchase draft",
+    homeHref: ROUTES.purchases,
+    listHref: ROUTES.purchaseBills,
+    newHref: ROUTES.newPurchase,
+    detailHref: (id) => DETAIL_ROUTES.purchase(id),
+    editHref: (id) => `${DETAIL_ROUTES.purchase(id)}/edit`,
+    paymentHref: (partyId) => `${ROUTES.moneyPaid}?supplierId=${encodeURIComponent(partyId)}`,
+    paymentLabel: "Pay supplier",
+    paymentCapability: "money.pay",
+    returnHref: (docId) => `${ROUTES.newPurchaseReturn}?purchaseId=${encodeURIComponent(docId)}`,
+    // Every purchase-return write is ADMIN-only on the backend.
+    returnCapability: "purchases.post",
+    prefillParam: "supplierId",
     partyKind: "supplier",
     partyLabel: "Supplier",
     partyField: "supplierId",
@@ -99,10 +153,16 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
     requiresSupplierInvoiceNumber: true,
     numberOf: (row) => String(row.purchaseNumber ?? ""),
     dateField: "invoiceDate",
-    draftCapability: "purchases.draft",
+    // The backend puts requireRole('ADMIN') on EVERY purchase write, drafts
+    // included (purchase.routes.js). The shared capability map says staff may
+    // draft a purchase, which would walk a staff member into a 403 - so the
+    // purchase screens gate drafting on the admin capability instead.
+    draftCapability: "purchases.post",
     postCapability: "purchases.post",
+    completedNote: "Completed purchases can't be edited. Use a purchase return to undo.",
     emptyTitle: "No purchases yet",
     emptyDescription: "Record a supplier bill and the stock it brought in.",
     api: purchasesApi as unknown as DocApi,
+    register: async (p) => fromPurchaseRegister(await registersApi.purchases(p)),
   },
 };

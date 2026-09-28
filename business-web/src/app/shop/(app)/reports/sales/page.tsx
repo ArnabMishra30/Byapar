@@ -1,5 +1,5 @@
-import { ReportsPage } from "@/features/reports/reports-page";
+import { SalesReport } from "@/features/reports/sales-report";
 
 export default function Page() {
-  return <ReportsPage />;
+  return <SalesReport />;
 }

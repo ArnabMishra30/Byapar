@@ -138,9 +138,14 @@ describe("the shop permission mirror still matches the backend", () => {
   });
 
   it("still lets staff prepare drafts", () => {
-    for (const capability of ["sales.draft", "purchases.draft", "expenses.draft"] as Capability[]) {
+    for (const capability of ["sales.draft", "expenses.draft"] as Capability[]) {
       expect(can("STAFF", capability), capability).toBe(true);
     }
+  });
+
+  it("refuses staff a purchase draft, as the backend does", () => {
+    // purchase.routes.js: POST /purchases is requireRole('ADMIN').
+    expect(can("STAFF", "purchases.draft")).toBe(false);
   });
 });
 

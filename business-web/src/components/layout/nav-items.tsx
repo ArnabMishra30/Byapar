@@ -1,6 +1,8 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { NAVIGATION, type NavItem, type NavSection } from "@/lib/constants";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -38,24 +40,82 @@ export function visibleSections(isAdmin: boolean, isGstEnabled: boolean): NavSec
   });
 }
 
+/**
+ * Which item is "the page you are on". The LONGEST matching href wins, so
+ * /shop/sales/returns highlights Sales Returns and not also Sales.
+ */
+export function activeHref(pathname: string | null, sections: NavSection[]): string | null {
+  if (!pathname) return null;
+  let best: string | null = null;
+  for (const section of sections) {
+    for (const item of section.items) {
+      const matches = pathname === item.href || pathname.startsWith(item.href + "/");
+      if (matches && (!best || item.href.length > best.length)) best = item.href;
+    }
+  }
+  return best;
+}
+
+const COLLAPSE_KEY = "byapar_nav_collapsed";
+
+function readCollapsed(): string[] {
+  try {
+    const raw = window.localStorage.getItem(COLLAPSE_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { isAdmin, isGstEnabled } = useAuth();
   const sections = visibleSections(isAdmin, isGstEnabled);
+  const current = activeHref(pathname, sections);
+
+  // Sections fold away so a long menu stays scannable. The section holding
+  // the current page is always open, whatever was folded before.
+  const [collapsed, setCollapsed] = React.useState<string[]>([]);
+  React.useEffect(() => setCollapsed(readCollapsed()), []);
+
+  const toggle = (title: string) => {
+    setCollapsed((prev) => {
+      const next = prev.includes(title) ? prev.filter((t) => t !== title) : [...prev, title];
+      try {
+        window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next));
+      } catch {
+        /* a preference, not data */
+      }
+      return next;
+    });
+  };
 
   return (
-    <nav className="flex flex-col gap-6 p-3" aria-label="Main">
-      {sections.map((section) => (
-        <div key={section.title} className="space-y-1">
-          <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <nav className="flex flex-col gap-3 p-3" aria-label="Main">
+      {sections.map((section) => {
+        const holdsCurrent = section.items.some((item) => item.href === current);
+        const open = holdsCurrent || !collapsed.includes(section.title);
+        const listId = `nav-${section.title.replace(/\W+/g, "-").toLowerCase()}`;
+
+        return (
+        <div key={section.title} className="space-y-0.5">
+          <button
+            type="button"
+            onClick={() => toggle(section.title)}
+            disabled={holdsCurrent}
+            aria-expanded={open}
+            aria-controls={listId}
+            className="flex w-full items-center justify-between rounded-md px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground"
+          >
             {section.title}
-          </p>
+            <ChevronDown
+              className={cn("h-3.5 w-3.5 transition-transform", !open && "-rotate-90")}
+              aria-hidden
+            />
+          </button>
+          <div id={listId} hidden={!open} className="space-y-0.5">
           {section.items.map((item) => {
-            // startsWith so a detail page keeps its parent highlighted, but
-            // never let "/" match everything.
-            const active =
-              pathname === item.href ||
-              (item.href !== "/" && pathname?.startsWith(item.href + "/"));
+            const active = item.href === current;
 
             return (
               <Link
@@ -75,8 +135,10 @@ export function NavItems({ onNavigate }: { onNavigate?: () => void }) {
               </Link>
             );
           })}
+          </div>
         </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }

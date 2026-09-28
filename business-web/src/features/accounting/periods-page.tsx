@@ -6,6 +6,7 @@ import { CalendarRange, Loader2, Lock, Plus, Unlock } from "lucide-react";
 import { toast } from "sonner";
 import { periodsApi, ApiError } from "@/lib/api";
 import { PageHeader } from "@/components/shared/page-header";
+import { AccountingTabs } from "./accounting-tabs";
 import { DataTable, useListState, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -103,7 +104,7 @@ export function PeriodsPage() {
           <Button
             variant="outline"
             size="sm"
-            className="h-8 gap-1.5 px-2 text-xs"
+            className="h-9 gap-1.5 px-3 text-xs"
             onClick={() => setAction({ type: row.isClosed ? "reopen" : "close", row })}
           >
             {row.isClosed ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
@@ -128,6 +129,7 @@ export function PeriodsPage() {
           </Can>
         }
       />
+      <AccountingTabs />
 
       <Card>
         <CardContent className="flex gap-3 p-4 text-sm text-muted-foreground">
@@ -147,6 +149,30 @@ export function PeriodsPage() {
         isLoading={isLoading}
         error={error}
         onRetry={() => refetch()}
+        mobileCard={(row) => (
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate font-medium">{String(row.name)}</p>
+              <p className="text-xs text-muted-foreground">
+                {formatDate(String(row.startDate))} – {formatDate(String(row.endDate))}
+              </p>
+              <div className="mt-1">
+                <StatusBadge status={row.isClosed ? "CLOSED" : "ACTIVE"} />
+              </div>
+            </div>
+            <Can do="periods.manage">
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-1.5"
+                onClick={() => setAction({ type: row.isClosed ? "reopen" : "close", row })}
+              >
+                {row.isClosed ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                {row.isClosed ? "Reopen" : "Close"}
+              </Button>
+            </Can>
+          </div>
+        )}
         pagination={
           data?.pagination
             ? {
@@ -159,6 +185,14 @@ export function PeriodsPage() {
         }
         emptyTitle="No periods yet"
         emptyDescription="Create one when you want to lock a finished month."
+        emptyAction={
+          <Can do="periods.manage">
+            <Button className="gap-1.5" onClick={() => setAddOpen(true)}>
+              <Plus className="h-4 w-4" />
+              New period
+            </Button>
+          </Can>
+        }
       />
 
       <Dialog open={addOpen} onOpenChange={(open) => (create.isPending ? null : setAddOpen(open))}>

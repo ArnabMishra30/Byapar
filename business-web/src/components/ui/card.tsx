@@ -3,7 +3,10 @@ import { cn } from "@/lib/utils";
 
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("rounded-xl border bg-card text-card-foreground shadow-sm", className)} {...props} />
+    // min-w-0: a card is very often a grid or flex item, whose default minimum
+    // width is its content. One long truncated name would otherwise widen the
+    // whole column past a phone screen instead of truncating.
+    <div ref={ref} className={cn("min-w-0 rounded-xl border bg-card text-card-foreground shadow-sm", className)} {...props} />
   ),
 );
 Card.displayName = "Card";

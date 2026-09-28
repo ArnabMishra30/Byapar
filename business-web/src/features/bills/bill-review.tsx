@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
+  ChevronDown,
   FileText,
   Loader2,
   Plus,
@@ -16,22 +17,31 @@ import {
 import { toast } from "sonner";
 import {
   billsApi,
+  dueListsApi,
+  purchasesApi,
+  salesApi,
   warehousesApi,
   type Bill,
   type ExtractedBill,
   type ExtractedLine,
 } from "@/lib/api";
+import type { Payable, Receivable } from "@/types/api";
 import { buildConfirmPayload } from "./confirm-payload";
+import { DIRECTION_LABEL } from "./bill-list";
 import { PageHeader } from "@/components/shared/page-header";
 import { ErrorState, LoadingState } from "@/components/shared/states";
 import { EntitySelect } from "@/components/shared/entity-select";
 import { Field, FormSection } from "@/components/shared/form-parts";
+import { PaidDue } from "@/components/shared/paid-due";
+import { NativeSelect } from "@/components/ui/select-native";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { stripBodyPrefix } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DETAIL_ROUTES, ROUTES } from "@/lib/constants";
+import { cn, stripBodyPrefix } from "@/lib/utils";
 
 /**
  * THE REVIEW STEP. The whole point of the feature.
@@ -85,35 +95,84 @@ export function BillReviewScreen({ billId }: Props) {
       bill={bill}
       onDone={() => {
         queryClient.invalidateQueries({ queryKey: ["bills"] });
-        router.push("/shop/bills");
+        router.push(ROUTES.bills);
       }}
     />
   );
+}
+
+/**
+ * Paid and due on the document a bill became, read from the backend's own
+ * receivable (sale) or payable (purchase) - never worked out here.
+ */
+function usePostedPaidDue(bill: Bill) {
+  return useQuery({
+    queryKey: ["bills", bill.id, "paid-due"],
+    enabled: Boolean(bill.posted),
+    queryFn: async () => {
+      const posted = bill.posted!;
+      if (posted.sourceType === "PURCHASE") {
+        const purchase = await purchasesApi.get(posted.sourceId);
+        const { items } = await dueListsApi.payables<Payable>({
+          supplierId: purchase.supplier.id,
+          limit: 100,
+        });
+        const row = items.find((payable) => payable.purchase?.id === purchase.id);
+        return { total: purchase.grandTotal, paid: row?.paidAmount, due: row?.outstandingAmount };
+      }
+      const sale = await salesApi.get(posted.sourceId);
+      const { items } = await dueListsApi.receivables<Receivable>({
+        customerId: sale.customer.id,
+        invoiceNumber: sale.invoiceNumber,
+        limit: 10,
+      });
+      const row = items.find((receivable) => receivable.salesInvoice?.id === sale.id);
+      return { total: sale.grandTotal, paid: row?.paidAmount, due: row?.outstandingAmount };
+    },
+  });
 }
 
 function AlreadyRecorded({ bill }: { bill: Bill }) {
   const router = useRouter();
   const href =
     bill.posted?.sourceType === "PURCHASE"
-      ? `/shop/purchases/${bill.posted.sourceId}`
-      : `/shop/sales/${bill.posted?.sourceId}`;
+      ? DETAIL_ROUTES.purchase(bill.posted.sourceId)
+      : DETAIL_ROUTES.sale(bill.posted?.sourceId ?? "");
+  const paidDue = usePostedPaidDue(bill);
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Bill already recorded" />
+      <PageHeader title="Bill already saved" description={DIRECTION_LABEL[bill.direction]} />
       <Card>
-        <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-          <CheckCircle2 className="h-10 w-10 text-emerald-600" />
-          <p className="font-medium">This bill has already been recorded.</p>
-          <p className="max-w-md text-sm text-muted-foreground">
-            A bill becomes one document and one only. To change what was recorded, cancel or
-            reverse that document — a posted record is never edited in place.
+        <CardContent className="flex flex-col items-center gap-3 px-4 py-10 text-center sm:py-12">
+          <CheckCircle2 className="h-10 w-10 text-success" />
+          <p className="font-medium">
+            This bill is already saved as a {bill.direction === "IN" ? "purchase" : "sale"}.
           </p>
-          <div className="flex gap-2 pt-2">
-            <Button variant="outline" onClick={() => router.push("/shop/bills")}>
+
+          {paidDue.isLoading ? (
+            <Skeleton className="h-14 w-full max-w-sm" />
+          ) : paidDue.data ? (
+            <PaidDue
+              size="lg"
+              className="justify-center"
+              total={paidDue.data.total}
+              paid={paidDue.data.paid ?? null}
+              due={paidDue.data.due ?? null}
+            />
+          ) : null}
+
+          <p className="max-w-md text-sm text-muted-foreground">
+            A bill becomes one document and one only. To change what was saved, cancel or
+            return that document — a posted record is never edited in place.
+          </p>
+          <div className="flex flex-col gap-2 pt-2 min-[400px]:flex-row">
+            <Button variant="outline" className="h-11" onClick={() => router.push(ROUTES.bills)}>
               Back to bills
             </Button>
-            <Button onClick={() => router.push(href)}>Open the document</Button>
+            <Button className="h-11" onClick={() => router.push(href)}>
+              Open the document
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -197,7 +256,11 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
   const totalsDiffer = billTotal > 0 && Math.abs(billTotal - recordedTotal) > 1;
 
   const paidNow = toAmount(paidAmount);
-  const stillOwing = Math.max(recordedTotal - paidNow, 0);
+  // No "still owing" figure here: what is due is decided by the backend when
+  // the bill is saved (tax, rounding, the actual payment), and shown on the
+  // document afterwards. A figure guessed on this screen would be the one the
+  // shopkeeper remembers, and it could be wrong.
+  const [previewOpen, setPreviewOpen] = React.useState(false);
   const formatRupees = (value: number) =>
     `₹${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -371,10 +434,10 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
     <div className="space-y-6">
       <PageHeader
         title={isPurchase ? "Check this purchase bill" : "Check this sales bill"}
-        description="Nothing is recorded until you confirm. Correct anything that was misread."
+        description={`${DIRECTION_LABEL[bill.direction]}. Nothing is saved until you confirm — correct anything that was misread.`}
         actions={
-          <Button variant="ghost" onClick={() => router.push("/shop/bills")}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
+          <Button variant="ghost" onClick={() => router.push(ROUTES.bills)}>
+            <ArrowLeft className="h-4 w-4" />
             Back
           </Button>
         }
@@ -409,14 +472,36 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
         {/* The bill as photographed */}
-        <div className="space-y-2 lg:sticky lg:top-4 lg:self-start">
-          <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+        <div className="min-w-0 space-y-2 lg:sticky lg:top-4 lg:self-start">
+          {/* On a phone the form is what matters, so the photo folds away
+              behind a button; on a wide screen it sits beside the form. */}
+          <button
+            type="button"
+            className="flex min-h-[2.75rem] w-full items-center justify-between gap-2 rounded-lg border px-3 text-sm font-medium lg:hidden"
+            aria-expanded={previewOpen}
+            onClick={() => setPreviewOpen((open) => !open)}
+          >
+            <span className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-muted-foreground" aria-hidden />
+              {previewOpen ? "Hide the bill photo" : "Show the bill photo"}
+            </span>
+            <ChevronDown
+              className={cn("h-4 w-4 transition-transform", previewOpen && "rotate-180")}
+              aria-hidden
+            />
+          </button>
+          <Label className="hidden text-xs uppercase tracking-wide text-muted-foreground lg:block">
             The bill you uploaded
           </Label>
-          <div className="overflow-hidden rounded-lg border bg-muted/30">
+          <div
+            className={cn(
+              "overflow-hidden rounded-lg border bg-muted/30 lg:block",
+              previewOpen ? "block" : "hidden",
+            )}
+          >
             {imageUrl ? (
               bill.file.mimeType === "application/pdf" ? (
-                <object data={imageUrl} type="application/pdf" className="h-[600px] w-full">
+                <object data={imageUrl} type="application/pdf" className="h-[70vh] w-full lg:h-[600px]">
                   <div className="flex flex-col items-center gap-2 p-8 text-center">
                     <FileText className="h-8 w-8 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">{bill.file.name}</p>
@@ -515,8 +600,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                     : "Which godown this stock goes to."
                 }
               >
-                <select
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base sm:text-sm"
+                <NativeSelect
                   value={warehouseId}
                   onChange={(event) => setWarehouseId(event.target.value)}
                 >
@@ -526,7 +610,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                       {warehouse.name}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </Field>
             )}
           </FormSection>
@@ -577,8 +661,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                   inputMode="decimal"
                   placeholder="0.00"
                 />
-                <select
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base sm:text-sm"
+                <NativeSelect
                   value={paymentMethod}
                   onChange={(event) =>
                     setPaymentMethod(event.target.value as typeof paymentMethod)
@@ -590,28 +673,24 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                   <option value="BANK_TRANSFER">Bank transfer</option>
                   <option value="CHEQUE">Cheque</option>
                   <option value="OTHER">Other</option>
-                </select>
+                </NativeSelect>
               </div>
             </Field>
 
-            <dl className="mt-1 space-y-1.5 rounded-lg border bg-muted/30 p-3 text-sm">
+            {/* A rough check only, so a misread line is caught before saving.
+                The real total, tax and what is still owed are worked out by
+                the backend when the bill is saved, and shown as PAID / DUE on
+                the document. */}
+            <div className="mt-1 space-y-1 rounded-lg border bg-muted/30 p-3 text-sm">
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-muted-foreground">What will be recorded</dt>
-                <dd className="font-medium tabular-nums">{formatRupees(recordedTotal)}</dd>
+                <span className="text-muted-foreground">Lines add up to (before tax)</span>
+                <span className="font-medium tabular-nums">{formatRupees(recordedTotal)}</span>
               </div>
-              <div className="flex items-center justify-between gap-4">
-                <dt className="text-muted-foreground">
-                  {isPurchase ? "Paid now" : "Received now"}
-                </dt>
-                <dd className="tabular-nums">{formatRupees(paidNow)}</dd>
-              </div>
-              <div className="flex items-center justify-between gap-4 border-t pt-1.5">
-                <dt className="font-medium">
-                  {isPurchase ? "Still owing to them" : "Still owed by them"}
-                </dt>
-                <dd className="font-semibold tabular-nums">{formatRupees(stillOwing)}</dd>
-              </div>
-            </dl>
+              <p className="text-xs text-muted-foreground">
+                The exact total, tax and what is still {isPurchase ? "owed to them" : "owed by them"}{" "}
+                are worked out when you save, and shown on the {isPurchase ? "purchase" : "sale"}.
+              </p>
+            </div>
 
             {totalsDiffer && (
               <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
@@ -660,10 +739,11 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                         </Badge>
                       )}
                       <Button
-                        size="sm"
+                        size="icon"
                         variant="ghost"
                         onClick={() => removeLine(index)}
                         title="Remove this line"
+                        aria-label="Remove this line"
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
@@ -753,9 +833,10 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
             </div>
           )}
 
-          <div className="flex flex-wrap gap-2 border-t pt-4">
+          <div className="grid gap-2 border-t pt-4 sm:flex sm:flex-wrap">
             <Button
               variant="outline"
+              className="h-11"
               disabled={saveMutation.isPending}
               onClick={() => saveMutation.mutate()}
             >
@@ -768,11 +849,12 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
             </Button>
 
             <Button
+              className="h-11"
               disabled={!canConfirm || confirmMutation.isPending}
               onClick={() => confirmMutation.mutate()}
             >
-              {confirmMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isPurchase ? "Record as a purchase" : "Record as a sale"}
+              {confirmMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isPurchase ? "Save as a purchase" : "Save as a sale"}
             </Button>
           </div>
 

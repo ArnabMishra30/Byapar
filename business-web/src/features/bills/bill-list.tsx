@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
@@ -9,9 +10,11 @@ import {
   Ban,
   Camera,
   CheckCircle2,
+  ClipboardCheck,
   FileWarning,
   Loader2,
   RefreshCw,
+  Save,
   ScanLine,
   Upload,
 } from "lucide-react";
@@ -21,7 +24,12 @@ import { PageHeader } from "@/components/shared/page-header";
 import { DataTable, useListState, type Column } from "@/components/shared/data-table";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { Money } from "@/components/shared/money";
+import { Can } from "@/components/shared/permission-gate";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { NativeSelect } from "@/components/ui/select-native";
+import { DETAIL_ROUTES, ROUTES } from "@/lib/constants";
 import {
   Dialog,
   DialogContent,
@@ -40,9 +48,32 @@ import { formatDate, stripBodyPrefix } from "@/lib/utils";
  * accounting document — through the ordinary purchase and sales flows, with the
  * same rules the typed forms follow.
  *
- *   IN  — a bill you RECEIVED   becomes a PURCHASE
- *   OUT — a bill you ISSUED     becomes a SALE
+ *   IN  — a bill you RECEIVED   becomes a PURCHASE (stock comes in)
+ *   OUT — a bill you ISSUED     becomes a SALE     (stock goes out)
+ *
+ * Other screens open the upload dialog directly with `?upload=1`, optionally
+ * with `&direction=IN|OUT` (e.g. the Home "Upload Bill" tile).
  */
+
+/** Shop-owner wording for the two directions, used across the bill screens. */
+export const DIRECTION_LABEL: Record<BillDirection, string> = {
+  IN: "IN · Purchase bill (stock comes in)",
+  OUT: "OUT · Sales bill (stock goes out)",
+};
+
+const STEPS = [
+  { icon: Upload, title: "1. Upload", text: "Take a photo or choose a PDF of the bill." },
+  { icon: ClipboardCheck, title: "2. Check", text: "We read it. You fix anything misread and match the items." },
+  { icon: Save, title: "3. Save", text: "Only when you confirm is it saved as a purchase or a sale." },
+];
+
+/** Where a recorded bill lives now. */
+function postedHref(bill: Bill) {
+  if (!bill.posted) return null;
+  return bill.posted.sourceType === "PURCHASE"
+    ? DETAIL_ROUTES.purchase(bill.posted.sourceId)
+    : DETAIL_ROUTES.sale(bill.posted.sourceId);
+}
 
 const STATUS_LABEL: Record<string, string> = {
   UPLOADED: "Uploaded",
@@ -56,8 +87,25 @@ const STATUS_LABEL: Record<string, string> = {
 export function BillListScreen() {
   const queryClient = useQueryClient();
   const list = useListState();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [uploadOpen, setUploadOpen] = React.useState(false);
+  const [uploadDirection, setUploadDirection] = React.useState<BillDirection>("IN");
+
+  // `?upload=1[&direction=IN|OUT]` opens the upload dialog straight away. The
+  // query is then removed, so a refresh or the back button does not reopen it.
+  React.useEffect(() => {
+    if (searchParams?.get("upload") !== "1") return;
+    setUploadDirection(searchParams.get("direction") === "OUT" ? "OUT" : "IN");
+    setUploadOpen(true);
+    router.replace(ROUTES.bills);
+  }, [searchParams, router]);
+
+  const openUpload = () => {
+    setUploadDirection("IN");
+    setUploadOpen(true);
+  };
   const [cancelling, setCancelling] = React.useState<Bill | null>(null);
   const [statusFilter, setStatusFilter] = React.useState("");
   const [directionFilter, setDirectionFilter] = React.useState("");
@@ -122,7 +170,9 @@ export function BillListScreen() {
       header: "Amount",
       cell: (bill) =>
         bill.reviewedData?.grandTotal ? (
-          <span className="tabular-nums font-medium">₹{bill.reviewedData.grandTotal}</span>
+          // As printed on the bill (read, not calculated). The recorded
+          // document's own total is on its page once saved.
+          <Money value={bill.reviewedData.grandTotal} className="font-medium" />
         ) : (
           // Never invent a figure. If it was not read, it is not shown.
           <span className="text-muted-foreground text-sm">Not read</span>
@@ -130,6 +180,7 @@ export function BillListScreen() {
     },
     {
       header: "Uploaded",
+      hideOnMobile: true,
       cell: (bill) => (
         <span className="text-sm tabular-nums">{formatDate(bill.createdAt)}</span>
       ),
@@ -148,67 +199,87 @@ export function BillListScreen() {
     {
       header: "",
       className: "text-right",
-      cell: (bill) => (
-        <div className="flex items-center justify-end gap-1">
-          {(bill.status === "REVIEW" || bill.status === "FAILED") && (
-            <Button size="sm" asChild>
-              <Link href={`/shop/bills/${bill.id}`}>Check &amp; record</Link>
-            </Button>
-          )}
-
-          {bill.status === "POSTED" && bill.posted && (
-            <Button size="sm" variant="outline" asChild>
-              <Link
-                href={
-                  bill.posted.sourceType === "PURCHASE"
-                    ? `/shop/purchases/${bill.posted.sourceId}`
-                    : `/shop/sales/${bill.posted.sourceId}`
-                }
-              >
-                Open document
-              </Link>
-            </Button>
-          )}
-
-          {bill.status === "FAILED" && (
-            <Button
-              size="sm"
-              variant="ghost"
-              title="Try reading it again"
-              disabled={retryMutation.isPending}
-              onClick={() => retryMutation.mutate(bill.id)}
-            >
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          )}
-
-          {bill.status !== "POSTED" && bill.status !== "CANCELLED" && (
-            <Button
-              size="sm"
-              variant="ghost"
-              title="Cancel this bill"
-              onClick={() => setCancelling(bill)}
-            >
-              <Ban className="h-4 w-4 text-destructive" />
-            </Button>
-          )}
-        </div>
-      ),
+      cell: (bill) => renderActions(bill),
     },
   ];
+
+  // The row actions, shared by the table and the phone card.
+  function renderActions(bill: Bill) {
+    const href = postedHref(bill);
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-1">
+        {(bill.status === "REVIEW" || bill.status === "FAILED") && (
+          <Button size="sm" asChild className="h-10">
+            <Link href={DETAIL_ROUTES.bill(bill.id)}>Check &amp; save</Link>
+          </Button>
+        )}
+
+        {bill.status === "POSTED" && href && (
+          <Button size="sm" variant="outline" asChild className="h-10">
+            <Link href={href}>Open document</Link>
+          </Button>
+        )}
+
+        {bill.status === "FAILED" && (
+          <Button
+            size="icon"
+            variant="ghost"
+            title="Try reading it again"
+            aria-label="Try reading it again"
+            disabled={retryMutation.isPending}
+            onClick={() => retryMutation.mutate(bill.id)}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        )}
+
+        {bill.status !== "POSTED" && bill.status !== "CANCELLED" && (
+          <Button
+            size="icon"
+            variant="ghost"
+            title="Cancel this bill"
+            aria-label="Cancel this bill"
+            onClick={() => setCancelling(bill)}
+          >
+            <Ban className="h-4 w-4 text-destructive" />
+          </Button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Bill Import"
-        description="Photograph a bill, check what was read, and record it in one step."
+        description="Photograph a bill, check what was read, then save it as a purchase or a sale."
         actions={
-          <Button onClick={() => setUploadOpen(true)}>
-            <Upload className="mr-2 h-4 w-4" />
-            Upload a bill
-          </Button>
+          <Can do="purchases.draft">
+            <Button onClick={openUpload}>
+              <Upload className="h-4 w-4" />
+              Upload a bill
+            </Button>
+          </Can>
         }
       />
+
+      {/* How it works, in three steps, stated up front so nobody expects a
+          photo to land in the books on its own. */}
+      <Card>
+        <CardContent className="grid gap-3 p-3 sm:grid-cols-3 sm:p-4">
+          {STEPS.map((step) => (
+            <div key={step.title} className="flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <step.icon className="h-4 w-4" aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">{step.title}</p>
+                <p className="text-xs text-muted-foreground">{step.text}</p>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       {/* If the server has no AI key, say so plainly rather than letting people
           upload bills that will never be read. */}
@@ -252,12 +323,48 @@ export function BillListScreen() {
             ? { ...query.data.pagination, onPageChange: list.setPage }
             : undefined
         }
+        mobileCard={(bill) => (
+          <div className="space-y-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">
+                  {bill.reviewedData?.partyName || bill.file.name}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {bill.direction === "IN" ? "IN · Purchase" : "OUT · Sale"} ·{" "}
+                  {formatDate(bill.createdAt)}
+                  {bill.reviewedData?.invoiceNumber ? ` · ${bill.reviewedData.invoiceNumber}` : ""}
+                </p>
+              </div>
+              <StatusBadge status={bill.status} />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm">
+                {bill.reviewedData?.grandTotal ? (
+                  <Money value={bill.reviewedData.grandTotal} className="font-medium" />
+                ) : (
+                  <span className="text-muted-foreground">{STATUS_LABEL[bill.status]}</span>
+                )}
+              </span>
+              {renderActions(bill)}
+            </div>
+          </div>
+        )}
         emptyTitle="No bills uploaded yet"
-        emptyDescription="Take a photo of a supplier bill and upload it to get started."
+        emptyDescription="Take a photo of a supplier or sales bill and upload it to get started."
+        emptyAction={
+          <Can do="purchases.draft">
+            <Button onClick={openUpload}>
+              <Upload className="h-4 w-4" />
+              Upload a bill
+            </Button>
+          </Can>
+        }
         filters={
-          <div className="flex gap-2">
-            <select
-              className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+            <NativeSelect
+              aria-label="Filter by status"
+              className="sm:w-44"
               value={statusFilter}
               onChange={(event) => {
                 setStatusFilter(event.target.value);
@@ -269,10 +376,11 @@ export function BillListScreen() {
               <option value="POSTED">Recorded</option>
               <option value="FAILED">Could not read</option>
               <option value="CANCELLED">Cancelled</option>
-            </select>
+            </NativeSelect>
 
-            <select
-              className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
+            <NativeSelect
+              aria-label="Filter by kind of bill"
+              className="sm:w-72"
               value={directionFilter}
               onChange={(event) => {
                 setDirectionFilter(event.target.value);
@@ -280,9 +388,9 @@ export function BillListScreen() {
               }}
             >
               <option value="">All bills</option>
-              <option value="IN">IN · Purchase</option>
-              <option value="OUT">OUT · Sale</option>
-            </select>
+              <option value="IN">{DIRECTION_LABEL.IN}</option>
+              <option value="OUT">{DIRECTION_LABEL.OUT}</option>
+            </NativeSelect>
           </div>
         }
       />
@@ -291,6 +399,7 @@ export function BillListScreen() {
         open={uploadOpen}
         onOpenChange={setUploadOpen}
         onUploaded={invalidate}
+        initialDirection={uploadDirection}
       />
 
       <ConfirmDialog
@@ -315,15 +424,23 @@ export function UploadBillDialog({
   onOpenChange,
   onUploaded,
   startWithCamera = false,
+  initialDirection = "IN",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUploaded?: (bill: Bill) => void;
   /** Open the camera as soon as the dialog appears, rather than a file picker. */
   startWithCamera?: boolean;
+  /** Pre-select IN or OUT, e.g. when opened from `?upload=1&direction=OUT`. */
+  initialDirection?: BillDirection;
 }) {
-  const [direction, setDirection] = React.useState<BillDirection>("IN");
+  const [direction, setDirection] = React.useState<BillDirection>(initialDirection);
   const [file, setFile] = React.useState<File | null>(null);
+
+  // Each time the dialog opens it starts on the direction it was asked for.
+  React.useEffect(() => {
+    if (open) setDirection(initialDirection);
+  }, [open, initialDirection]);
 
   // TWO INPUTS, NOT ONE.
   //
@@ -380,7 +497,7 @@ export function UploadBillDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <p className="text-sm font-medium">Bill direction</p>
+            <p className="text-sm font-medium">What kind of bill is it?</p>
             {/*
               IN and OUT, in large type, rather than "I received it" / "I issued
               it". Two first-person sentences that differ by one verb are read
@@ -405,7 +522,10 @@ export function UploadBillDialog({
                   aria-hidden
                 />
                 <span className="mt-1.5 text-xl font-bold leading-none">IN</span>
-                <span className="mt-1 text-xs text-muted-foreground">Purchase</span>
+                <span className="mt-1 text-sm font-medium">Purchase</span>
+                <span className="text-[11px] leading-tight text-muted-foreground">
+                  bill · stock comes in
+                </span>
               </button>
 
               <button
@@ -423,7 +543,10 @@ export function UploadBillDialog({
                   aria-hidden
                 />
                 <span className="mt-1.5 text-xl font-bold leading-none">OUT</span>
-                <span className="mt-1 text-xs text-muted-foreground">Sale</span>
+                <span className="mt-1 text-sm font-medium">Sale</span>
+                <span className="text-[11px] leading-tight text-muted-foreground">
+                  bill · stock goes out
+                </span>
               </button>
             </div>
           </div>
@@ -444,7 +567,9 @@ export function UploadBillDialog({
             <input
               ref={fileRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
+              // HEIC/HEIF is how an iPhone saves photos; the backend accepts it,
+              // and some browsers only match it by file extension.
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png,.webp,application/pdf,.pdf"
               className="hidden"
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
             />

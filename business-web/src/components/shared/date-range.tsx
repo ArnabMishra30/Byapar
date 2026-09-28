@@ -58,7 +58,10 @@ export function DateRangeFilter({
   );
 
   return (
-    <div className={cn("space-y-2", className)}>
+    // min-w-0: this is usually a grid or flex item, whose default minimum width
+    // is its content. Without it the chip row's full width widened the parent
+    // past a 320px screen instead of scrolling inside the row.
+    <div className={cn("min-w-0 max-w-full space-y-2", className)}>
       {/*
         One scrollable row. -mx-1 px-1 lets the chips bleed to the screen edge
         so the last one does not look clipped, and the page itself never scrolls

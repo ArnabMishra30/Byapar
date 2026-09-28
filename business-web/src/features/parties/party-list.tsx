@@ -2,55 +2,53 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Loader2, Plus, UserCheck, Truck } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { customersApi, suppliersApi, ApiError } from "@/lib/api";
-import { useAuth } from "@/lib/auth/auth-context";
+import { customersApi, suppliersApi } from "@/lib/api";
 import { PageHeader } from "@/components/shared/page-header";
+import { ModuleTabs } from "@/components/shared/module-tabs";
 import { DataTable, useListState, type Column } from "@/components/shared/data-table";
 import { Money } from "@/components/shared/money";
-import { StatusBadge } from "@/components/shared/status-badge";
 import { Can } from "@/components/shared/permission-gate";
-import { GstOnly } from "@/components/shared/gst-gate";
-import { Field, FormSection } from "@/components/shared/form-parts";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/select-native";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { INDIAN_STATES } from "@/lib/constants";
-import { stripBodyPrefix } from "@/lib/utils";
+import { DETAIL_ROUTES, ROUTES } from "@/lib/constants";
+import { formatDate } from "@/lib/utils";
+import { PartyForm } from "./party-form";
+import { CreditBadge, useCreditRows, type PartyKind } from "./party-credit";
 import type { Customer } from "@/types/api";
+
+export type { PartyKind };
 
 /**
  * Customers and suppliers are the same screen.
  *
  * The backend models them identically - same fields, same credit terms, same
- * ledger and statement endpoints - so building two near-identical pages would
- * mean fixing every bug twice. One component, two configurations.
+ * ledger and statement endpoints - so one component serves both, with the
+ * words swapped. "Owes you" and "You owe" are read from the credit book, row
+ * by row; this page adds nothing up.
  */
-
-export type PartyKind = "customer" | "supplier";
-
 const CONFIG = {
   customer: {
     title: "Customers",
     description: "Everyone you sell to, and what they owe you.",
     singular: "customer",
-    addLabel: "Add customer",
-    icon: UserCheck,
+    addLabel: "Add Customer",
     balanceLabel: "Owes you",
     api: customersApi,
-    detailHref: (id: string) => `/shop/customers/${id}`,
+    tabs: [
+      { label: "Customers", href: ROUTES.customers },
+      { label: "Credit Book", href: ROUTES.creditBook },
+    ],
     emptyTitle: "No customers yet",
     emptyDescription: "Add the people you sell to, so you can track who owes you money.",
   },
@@ -58,179 +56,149 @@ const CONFIG = {
     title: "Suppliers",
     description: "Everyone you buy from, and what you owe them.",
     singular: "supplier",
-    addLabel: "Add supplier",
-    icon: Truck,
+    addLabel: "Add Supplier",
     balanceLabel: "You owe",
     api: suppliersApi,
-    detailHref: (id: string) => `/shop/suppliers/${id}`,
+    tabs: [
+      { label: "Suppliers", href: ROUTES.suppliers },
+      { label: "Credit Book", href: ROUTES.creditBook },
+    ],
     emptyTitle: "No suppliers yet",
     emptyDescription: "Add the people you buy from, so you can track what you owe.",
   },
 } as const;
 
-/**
- * GST fields are optional at every level, and the form only shows them at all
- * when the business itself uses GST. A local shop never sees a GSTIN box.
- */
-const schema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(200, "That name is too long"),
-  phone: z.string().trim().max(20, "That phone number is too long").optional().or(z.literal("")),
-  email: z.string().trim().email("That does not look like an email").optional().or(z.literal("")),
-  address: z.string().trim().max(500).optional().or(z.literal("")),
-  gstin: z.string().trim().optional().or(z.literal("")),
-  stateCode: z.string().trim().optional().or(z.literal("")),
-  creditLimit: z
-    .string()
-    .trim()
-    .regex(/^\d*\.?\d{0,2}$/, "Enter an amount like 20000 or 20000.50")
-    .optional()
-    .or(z.literal("")),
-  creditDays: z
-    .string()
-    .trim()
-    .regex(/^\d*$/, "Enter a whole number of days")
-    .optional()
-    .or(z.literal("")),
-});
-
-type FormValues = z.infer<typeof schema>;
+const detailHref = (kind: PartyKind, id: string) =>
+  kind === "customer" ? DETAIL_ROUTES.customer(id) : DETAIL_ROUTES.supplier(id);
 
 export function PartyList({ kind }: { kind: PartyKind }) {
   const config = CONFIG[kind];
-  const { isGstEnabled } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const list = useListState({ limit: 20 });
-  const [addOpen, setAddOpen] = React.useState(false);
+  const [active, setActive] = React.useState<"true" | "false" | "">("true");
 
-  // Search is debounced so a request does not fire on every keystroke.
+  // Suppliers are added in a dialog; ?new=1 (from the command menu or another
+  // page) opens it straight away. Customers have their own page.
+  const [addOpen, setAddOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (kind === "supplier" && searchParams?.get("new") === "1") setAddOpen(true);
+  }, [kind, searchParams]);
+  const closeAdd = () => {
+    setAddOpen(false);
+    if (searchParams?.get("new")) router.replace(pathname ?? ROUTES.suppliers);
+  };
+
+  // Debounced so a request does not fire on every keystroke.
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
   React.useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(list.search), 300);
+    const timer = setTimeout(() => setDebouncedSearch(list.search.trim()), 300);
     return () => clearTimeout(timer);
   }, [list.search]);
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: [kind, "list", list.page, debouncedSearch],
+    queryKey: [kind, "list", list.page, debouncedSearch, active],
     queryFn: () =>
       config.api.list({
         page: list.page,
         limit: list.limit,
         search: debouncedSearch || undefined,
+        isActive: active || undefined,
       }),
   });
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      name: "",
-      phone: "",
-      email: "",
-      address: "",
-      gstin: "",
-      stateCode: "",
-      creditLimit: "",
-      creditDays: "",
-    },
-  });
+  const credit = useCreditRows(kind);
 
-  const create = useMutation({
-    mutationFn: (values: FormValues) =>
-      config.api.create({
-        name: values.name,
-        phone: values.phone || undefined,
-        email: values.email || undefined,
-        address: values.address || undefined,
-        // Only ever sent when the business uses GST. A non-GST shop cannot
-        // accidentally submit a blank GSTIN.
-        ...(isGstEnabled
-          ? {
-              gstin: values.gstin || undefined,
-              stateCode: values.stateCode || undefined,
-            }
-          : {}),
-        creditLimit: values.creditLimit || undefined,
-        creditDays: values.creditDays ? Number(values.creditDays) : undefined,
-      } as Partial<Customer>),
-    onSuccess: (created) => {
-      toast.success(`${created.name} added`);
-      setAddOpen(false);
-      form.reset();
-      // Refetch rather than patch the cache: the backend fills in defaults.
-      queryClient.invalidateQueries({ queryKey: [kind] });
-    },
-    onError: (err) => {
-      if (err instanceof ApiError && err.fieldErrors?.length) {
-        for (const item of err.fieldErrors) {
-          const field = stripBodyPrefix(item.field) as keyof FormValues;
-          if (field in form.getValues()) {
-            form.setError(field, { message: item.message });
-          }
-        }
-        toast.error("Please check the form");
-        return;
-      }
-      toast.error(`Could not add ${config.singular}`, {
-        description: err instanceof ApiError ? err.message : undefined,
-      });
-    },
-  });
+  const owed = (row: Customer) => {
+    if (credit.isLoading) return <span className="text-muted-foreground">…</span>;
+    const entry = credit.byId.get(row.id);
+    if (!entry) return <span className="text-muted-foreground">—</span>;
+    return <Money value={entry.outstanding} className="font-semibold" />;
+  };
 
   const columns: Column<Customer>[] = [
     {
       header: "Name",
       cell: (row) => (
-        <Link href={config.detailHref(row.id)} className="font-medium text-foreground hover:text-primary">
+        <Link href={detailHref(kind, row.id)} className="font-medium text-foreground hover:text-primary">
           {row.name}
+          {!row.isActive ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">(inactive)</span> : null}
         </Link>
       ),
     },
+    { header: "Phone", cell: (row) => row.phone || <span className="text-muted-foreground">—</span> },
     {
-      header: "Phone",
-      cell: (row) => row.phone || <span className="text-muted-foreground">—</span>,
+      header: "Email",
       hideOnMobile: true,
+      cell: (row) => <span className="block max-w-[14rem] truncate">{row.email || "—"}</span>,
     },
     {
-      header: "Credit limit",
-      numeric: true,
+      header: "Address",
       hideOnMobile: true,
-      cell: (row) =>
-        row.isUnlimited ? (
-          <span className="text-xs text-muted-foreground">No limit</span>
+      cell: (row) => <span className="block max-w-[14rem] truncate text-muted-foreground">{row.address || "—"}</span>,
+    },
+    { header: config.balanceLabel, numeric: true, cell: owed },
+    {
+      header: "Credit",
+      cell: (row) => (
+        <CreditBadge kind={kind} row={credit.byId.get(row.id)} isOverLimit={credit.overLimit.has(row.id)} />
+      ),
+    },
+    {
+      header: "Last payment",
+      hideOnMobile: true,
+      cell: (row) => {
+        const last = credit.byId.get(row.id)?.lastPayment;
+        return last ? (
+          <span className="whitespace-nowrap">{formatDate(last.date)}</span>
         ) : (
-          <Money value={row.creditLimit} />
-        ),
-    },
-    {
-      header: "Terms",
-      numeric: true,
-      hideOnMobile: true,
-      cell: (row) =>
-        row.creditDays === null || row.creditDays === undefined ? (
           <span className="text-muted-foreground">—</span>
-        ) : (
-          `${row.creditDays} days`
-        ),
-    },
-    {
-      header: "Status",
-      cell: (row) => <StatusBadge status={row.isActive ? "ACTIVE" : "INACTIVE"} />,
+        );
+      },
     },
   ];
 
+  const addButton = (full = false) =>
+    kind === "customer" ? (
+      <Button asChild className="gap-1.5">
+        <Link href={ROUTES.newCustomer} aria-label={config.addLabel}>
+          <Plus className="h-4 w-4" />
+          <span className={full ? "" : "hidden sm:inline"}>{config.addLabel}</span>
+          {full ? null : <span className="sm:hidden">Add</span>}
+        </Link>
+      </Button>
+    ) : (
+      <Button className="gap-1.5" onClick={() => setAddOpen(true)} aria-label={config.addLabel}>
+        <Plus className="h-4 w-4" />
+        <span className={full ? "" : "hidden sm:inline"}>{config.addLabel}</span>
+        {full ? null : <span className="sm:hidden">Add</span>}
+      </Button>
+    );
+
   return (
     <div className="space-y-6">
-      <PageHeader
-        title={config.title}
-        description={config.description}
-        actions={
-          <Can do="parties.manage">
-            <Button onClick={() => setAddOpen(true)} className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              {config.addLabel}
-            </Button>
-          </Can>
-        }
-      />
+      <div className="space-y-3">
+        <PageHeader
+          title={config.title}
+          description={config.description}
+          actions={
+            <Can do="parties.manage">
+              {kind === "customer" ? (
+                <Button asChild variant="outline" className="gap-1.5" aria-label="Bulk upload">
+                  <Link href={ROUTES.importCustomers}>
+                    <Upload className="h-4 w-4" />
+                    <span className="hidden sm:inline">Bulk upload</span>
+                  </Link>
+                </Button>
+              ) : null}
+              {addButton()}
+            </Can>
+          }
+        />
+        <ModuleTabs tabs={[...config.tabs]} />
+      </div>
 
       <DataTable
         columns={columns}
@@ -241,18 +209,43 @@ export function PartyList({ kind }: { kind: PartyKind }) {
         onRetry={() => refetch()}
         search={list.search}
         onSearchChange={list.setSearch}
-        searchPlaceholder={`Search ${config.title.toLowerCase()}…`}
-        mobileCard={(row) => (
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{row.name}</p>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                {row.phone || "No phone"}
-              </p>
+        searchPlaceholder={`Search name, phone or email…`}
+        filters={
+          <NativeSelect
+            aria-label="Show"
+            className="w-full sm:w-44"
+            value={active}
+            onChange={(event) => {
+              setActive(event.target.value as "true" | "false" | "");
+              list.setPage(1);
+            }}
+          >
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+            <option value="">All</option>
+          </NativeSelect>
+        }
+        onRowClick={(row) => router.push(detailHref(kind, row.id))}
+        mobileCard={(row) => {
+          const entry = credit.byId.get(row.id);
+          return (
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{row.name}</p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{row.phone || "No phone"}</p>
+                {entry?.lastPayment ? (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    Last payment {formatDate(entry.lastPayment.date)}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                {entry ? <Money value={entry.outstanding} className="text-sm font-semibold" /> : null}
+                <CreditBadge kind={kind} row={entry} isOverLimit={credit.overLimit.has(row.id)} />
+              </div>
             </div>
-            <StatusBadge status={row.isActive ? "ACTIVE" : "INACTIVE"} />
-          </div>
-        )}
+          );
+        }}
         pagination={
           data?.pagination
             ? {
@@ -263,119 +256,41 @@ export function PartyList({ kind }: { kind: PartyKind }) {
               }
             : undefined
         }
-        emptyTitle={config.emptyTitle}
-        emptyDescription={config.emptyDescription}
+        emptyTitle={active === "false" ? `No inactive ${config.singular}s` : config.emptyTitle}
+        emptyDescription={active === "false" ? undefined : config.emptyDescription}
         emptyAction={
-          <Can do="parties.manage">
-            <Button onClick={() => setAddOpen(true)} className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              {config.addLabel}
-            </Button>
-          </Can>
+          active === "false" ? undefined : <Can do="parties.manage">{addButton(true)}</Can>
         }
       />
 
-      <Dialog open={addOpen} onOpenChange={(open) => (create.isPending ? null : setAddOpen(open))}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{config.addLabel}</DialogTitle>
-            <DialogDescription>
-              Only the name is required. Everything else can be filled in later.
-            </DialogDescription>
-          </DialogHeader>
+      {credit.isError ? (
+        <p className="text-xs text-muted-foreground">
+          Balances could not be loaded just now, so the {config.balanceLabel.toLowerCase()} column is blank.
+        </p>
+      ) : null}
 
-          <form
-            onSubmit={form.handleSubmit((values) => create.mutate(values))}
-            className="space-y-5"
-            noValidate
-          >
-            <FormSection>
-              <Field label="Name" htmlFor="name" required error={form.formState.errors.name?.message}>
-                <Input id="name" autoFocus {...form.register("name")} />
-              </Field>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Phone" htmlFor="phone" error={form.formState.errors.phone?.message}>
-                  <Input id="phone" type="tel" inputMode="tel" {...form.register("phone")} />
-                </Field>
-                <Field label="Email" htmlFor="email" error={form.formState.errors.email?.message}>
-                  <Input id="email" type="email" inputMode="email" {...form.register("email")} />
-                </Field>
-              </div>
-
-              <Field label="Address" htmlFor="address" error={form.formState.errors.address?.message}>
-                <Input id="address" {...form.register("address")} />
-              </Field>
-            </FormSection>
-
-            <FormSection
-              title="Credit"
-              description="Leave blank if you do not give this party credit terms."
-            >
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field
-                  label="Credit limit"
-                  htmlFor="creditLimit"
-                  hint="Blank or 0 means no limit"
-                  error={form.formState.errors.creditLimit?.message}
-                >
-                  <Input id="creditLimit" inputMode="decimal" placeholder="0" {...form.register("creditLimit")} />
-                </Field>
-                <Field
-                  label="Payment days"
-                  htmlFor="creditDays"
-                  hint="Used to work out due dates"
-                  error={form.formState.errors.creditDays?.message}
-                >
-                  <Input id="creditDays" inputMode="numeric" placeholder="30" {...form.register("creditDays")} />
-                </Field>
-              </div>
-            </FormSection>
-
-            {/* Shown ONLY for a GST-registered business. A local shop never sees
-                a GSTIN field, and never has to fill one in. */}
-            <GstOnly>
-              <FormSection title="GST" description="Optional, even for a registered business.">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="GSTIN" htmlFor="gstin" error={form.formState.errors.gstin?.message}>
-                    <Input id="gstin" className="uppercase" {...form.register("gstin")} />
-                  </Field>
-                  <Field label="State" htmlFor="stateCode" error={form.formState.errors.stateCode?.message}>
-                    <select
-                      id="stateCode"
-                      className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base sm:text-sm"
-                      {...form.register("stateCode")}
-                    >
-                      <option value="">Not set</option>
-                      {INDIAN_STATES.map((state) => (
-                        <option key={state.code} value={state.code}>
-                          {state.name}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                </div>
-              </FormSection>
-            </GstOnly>
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setAddOpen(false)}
-                disabled={create.isPending}
-              >
-                Cancel
-              </Button>
-              {/* Disabled while in flight, so a double tap cannot create two. */}
-              <Button type="submit" disabled={create.isPending}>
-                {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Save
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {kind === "supplier" ? (
+        <Dialog open={addOpen} onOpenChange={(open) => (open ? setAddOpen(true) : closeAdd())}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{config.addLabel}</DialogTitle>
+              <DialogDescription>Only the name is needed. Everything else can be added later.</DialogDescription>
+            </DialogHeader>
+            <PartyForm
+              kind="supplier"
+              mode="create"
+              save={(body) => suppliersApi.create(body)}
+              onCancel={closeAdd}
+              onSaved={(saved) => {
+                toast.success(`${saved.name} added`);
+                queryClient.invalidateQueries({ queryKey: ["supplier"] });
+                setAddOpen(false);
+                router.push(DETAIL_ROUTES.supplier(saved.id));
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, CheckCircle2, Loader2, Plus, RotateCcw, Wallet } from "lucide-react";
+import { Ban, CheckCircle2, Loader2, Plus, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { expensesApi, ApiError } from "@/lib/api";
 import { PageHeader } from "@/components/shared/page-header";
@@ -14,6 +15,8 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Can } from "@/components/shared/permission-gate";
 import { Field, FormSection } from "@/components/shared/form-parts";
 import { EntitySelect } from "@/components/shared/entity-select";
+import { NativeSelect } from "@/components/ui/select-native";
+import { MoneyTabs } from "@/features/money/money-tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -30,7 +33,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { formatDate, stripBodyPrefix } from "@/lib/utils";
+import { formatDate, stripBodyPrefix, toInputDate } from "@/lib/utils";
 import type { Expense } from "@/types/api";
 
 /**
@@ -45,14 +48,34 @@ import type { Expense } from "@/types/api";
  */
 export function ExpensesPage() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const list = useListState({ limit: 20 });
   const [range, setRange] = React.useState<DateRangeValue>({});
   const [status, setStatus] = React.useState("");
-  const [addOpen, setAddOpen] = React.useState(false);
+  const [categoryFilter, setCategoryFilter] = React.useState("");
+  const [addOpen, setAddOpenState] = React.useState(false);
+
+  // ?new=1 (from the command menu, the dashboard or another page) opens the
+  // form straight away; closing it drops the flag so a refresh does not reopen.
+  React.useEffect(() => {
+    if (searchParams?.get("new") === "1") setAddOpenState(true);
+  }, [searchParams]);
+  const setAddOpen = (open: boolean) => {
+    setAddOpenState(open);
+    if (!open && searchParams?.get("new")) router.replace(pathname ?? "");
+  };
+
+  const [debouncedSearch, setDebouncedSearch] = React.useState("");
+  React.useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(list.search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [list.search]);
   const [action, setAction] = React.useState<{ type: "post" | "cancel" | "reverse"; row: Expense } | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["expenses", list.page, range.fromDate, range.toDate, status],
+    queryKey: ["expenses", list.page, range.fromDate, range.toDate, status, categoryFilter, debouncedSearch],
     queryFn: () =>
       expensesApi.list({
         page: list.page,
@@ -60,22 +83,27 @@ export function ExpensesPage() {
         fromDate: range.fromDate,
         toDate: range.toDate,
         status: status || undefined,
+        expenseAccountId: categoryFilter || undefined,
+        search: debouncedSearch || undefined,
       }),
   });
 
   const categories = useQuery({
     queryKey: ["expense-categories"],
+    // Also feeds the "Type" filter, so it loads with the page.
     queryFn: () => expensesApi.categories(),
-    enabled: addOpen,
+    staleTime: 5 * 60_000,
   });
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["expenses"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    queryClient.invalidateQueries({ queryKey: ["cash-bank"] });
   };
 
   // --- the add form -------------------------------------------------------
-  const today = new Date().toISOString().slice(0, 10);
+  // Local date, not UTC: at 1 a.m. in India the UTC date is still yesterday.
+  const today = toInputDate();
   const [form, setForm] = React.useState({
     expenseDate: today,
     expenseAccountId: "",
@@ -174,7 +202,7 @@ export function ExpensesPage() {
       cell: (row) => <span className="whitespace-nowrap">{formatDate(row.expenseDate)}</span>,
     },
     {
-      header: "What for",
+      header: "Type",
       cell: (row) => (
         <span className="block max-w-[12rem] truncate">
           {row.category?.name}
@@ -244,7 +272,8 @@ export function ExpensesPage() {
   ];
 
   return (
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-6">
+      <div className="space-y-3">
       <PageHeader
         title="Expenses"
         description="Rent, electricity, salaries and other business spending."
@@ -260,11 +289,16 @@ export function ExpensesPage() {
           </Can>
         }
       />
+      <MoneyTabs />
+      </div>
 
       <DataTable
         columns={columns}
         rows={data?.items}
         rowKey={(row) => row.id}
+        search={list.search}
+        onSearchChange={list.setSearch}
+        searchPlaceholder="Search note or number…"
         isLoading={isLoading}
         error={error}
         onRetry={() => refetch()}
@@ -296,22 +330,38 @@ export function ExpensesPage() {
             />
             {/* Status sits on the same visual tier as the date row rather than
                 carrying its own stacked label, which cost a whole row before. */}
-            <select
-              id="exp-status"
-              aria-label="Filter by status"
-              className="h-9 w-full rounded-lg border border-input bg-background px-2 text-xs sm:w-auto sm:text-sm"
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                list.setPage(1);
-              }}
-            >
-              <option value="">All statuses</option>
-              <option value="DRAFT">Draft</option>
-              <option value="POSTED">Posted</option>
-              <option value="CANCELLED">Cancelled</option>
-              <option value="REVERSED">Reversed</option>
-            </select>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <NativeSelect
+                aria-label="Filter by type"
+                value={categoryFilter}
+                onChange={(e) => {
+                  setCategoryFilter(e.target.value);
+                  list.setPage(1);
+                }}
+              >
+                <option value="">All types</option>
+                {categories.data?.map((category) => (
+                  <option key={category.accountId} value={category.accountId}>
+                    {category.name}
+                  </option>
+                ))}
+              </NativeSelect>
+              <NativeSelect
+                id="exp-status"
+                aria-label="Filter by status"
+                value={status}
+                onChange={(e) => {
+                  setStatus(e.target.value);
+                  list.setPage(1);
+                }}
+              >
+                <option value="">All statuses</option>
+                <option value="DRAFT">Draft</option>
+                <option value="POSTED">Posted</option>
+                <option value="CANCELLED">Cancelled</option>
+                <option value="REVERSED">Reversed</option>
+              </NativeSelect>
+            </div>
           </div>
         }
         pagination={
@@ -356,27 +406,27 @@ export function ExpensesPage() {
           >
             <FormSection>
               <Field
-                label="What was it for"
+                label="Expense type"
                 htmlFor="category"
                 required
+                hint="Rent, electricity, salary, transport…"
                 error={formErrors.expenseAccountId}
               >
-                <select
+                <NativeSelect
                   id="category"
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base sm:text-sm"
                   value={form.expenseAccountId}
                   onChange={(e) => setForm({ ...form, expenseAccountId: e.target.value })}
                 >
-                  <option value="">Choose…</option>
+                  <option value="">{categories.isLoading ? "Loading…" : "Choose…"}</option>
                   {categories.data?.map((category) => (
                     <option key={category.accountId} value={category.accountId}>
                       {category.name}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </Field>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Amount" htmlFor="amount" required error={formErrors.amount}>
                   <Input
                     id="amount"
@@ -397,15 +447,14 @@ export function ExpensesPage() {
               </div>
 
               <Field label="Paid by" htmlFor="paymentMode" required>
-                <select
+                <NativeSelect
                   id="paymentMode"
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-base sm:text-sm"
                   value={form.paymentMode}
                   onChange={(e) => setForm({ ...form, paymentMode: e.target.value })}
                 >
                   <option value="CASH">Cash</option>
-                  <option value="BANK">Bank</option>
-                </select>
+                  <option value="BANK">Bank / UPI</option>
+                </NativeSelect>
               </Field>
 
               <Field label="Note" htmlFor="description" hint="Optional">
@@ -467,7 +516,7 @@ export function ExpensesPage() {
             ? "The money will come out of your cash or bank balance, and this will show in your profit."
             : action?.type === "cancel"
               ? "The draft is abandoned. Nothing was posted, so nothing needs undoing."
-              : "A new, opposite entry will be written. The original stays in the books — nothing is deleted."
+              : "A posted expense is never deleted. Reversing writes an equal and opposite entry, so the money comes back into your cash or bank and your profit goes back up. Both entries stay in the books for the record, and this cannot be undone."
         }
       />
     </div>
