@@ -7,13 +7,13 @@ import {
   ArrowUpRight,
   ChevronRight,
   Receipt,
-  ScanLine,
   ShoppingCart,
   Truck,
   UserPlus,
   Zap,
 } from "lucide-react";
 import { Can } from "@/components/shared/permission-gate";
+import { ScanBillCta } from "@/features/bills/scan-bill-cta";
 import { useAuth } from "@/lib/auth/auth-context";
 import { ROUTES } from "@/lib/constants";
 import type { Capability } from "@/lib/permissions";
@@ -34,7 +34,6 @@ const ACTIONS: {
 }[] = [
   { label: "Add Sale", href: ROUTES.newSale, icon: Receipt, capability: "sales.draft" },
   { label: "Add Purchase", href: ROUTES.newPurchase, icon: ShoppingCart, capability: "purchases.draft" },
-  { label: "Upload Bill", href: `${ROUTES.bills}?upload=1`, icon: ScanLine, capability: "purchases.draft" },
   { label: "Money Received", href: ROUTES.moneyReceived, icon: ArrowDownLeft, capability: "money.receive" },
   { label: "Money Paid", href: ROUTES.moneyPaid, icon: ArrowUpRight, capability: "money.pay" },
   { label: "Add Customer", href: ROUTES.newCustomer, icon: UserPlus, capability: "parties.manage" },
@@ -52,11 +51,14 @@ export function QuickActions() {
         Quick actions
       </h2>
 
-      {/* Quick Billing is THE action at a counter, so it gets the big tile. */}
+      {/* The two fast paths get the big tiles, side by side from lg up:
+          Quick Billing for a sale at the counter, Scan a Bill for a bill that
+          already exists on paper. Stacked on phones and tablets. */}
+      <div className="grid gap-2 lg:grid-cols-2">
       <Can do="sales.draft">
         <Link
           href={ROUTES.quickBilling}
-          className="flex min-h-[4.5rem] items-center gap-3 rounded-xl bg-primary p-4 text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="flex min-h-[4.5rem] min-w-0 items-center gap-3 rounded-xl bg-primary p-4 text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/15">
             <Zap className="h-6 w-6" aria-hidden />
@@ -70,8 +72,10 @@ export function QuickActions() {
           <ChevronRight className="h-5 w-5 shrink-0 opacity-80" aria-hidden />
         </Link>
       </Can>
+      <ScanBillCta />
+      </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {ACTIONS.map((action) => (
           <Can key={action.label} do={action.capability}>
             <Link

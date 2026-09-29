@@ -254,7 +254,7 @@ export function BillListScreen() {
         title="Bill Import"
         description="Photograph a bill, check what was read, then save it as a purchase or a sale."
         actions={
-          <Can do="purchases.draft">
+          <Can do="bills.upload">
             <Button onClick={openUpload}>
               <Upload className="h-4 w-4" />
               Upload a bill
@@ -353,7 +353,7 @@ export function BillListScreen() {
         emptyTitle="No bills uploaded yet"
         emptyDescription="Take a photo of a supplier or sales bill and upload it to get started."
         emptyAction={
-          <Can do="purchases.draft">
+          <Can do="bills.upload">
             <Button onClick={openUpload}>
               <Upload className="h-4 w-4" />
               Upload a bill

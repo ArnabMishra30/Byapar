@@ -45,6 +45,10 @@ export type Capability =
   | "expenses.read"
   | "expenses.draft"
   | "expenses.post"
+  // Uploading a bill for the AI to read is open to staff (bill.routes.js has
+  // no role gate on POST /bills); only confirming it into the books is ADMIN,
+  // which the purchase/sale post capabilities already cover.
+  | "bills.upload"
   // money
   | "money.read"
   | "money.receive"

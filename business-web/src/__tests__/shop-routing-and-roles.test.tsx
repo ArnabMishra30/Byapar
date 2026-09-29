@@ -143,6 +143,11 @@ describe("the shop permission mirror still matches the backend", () => {
     }
   });
 
+  it("lets staff upload a bill for reading, as the backend does", () => {
+    // bill.routes.js: POST /bills has no role gate; only /:id/confirm is ADMIN.
+    expect(can("STAFF", "bills.upload")).toBe(true);
+  });
+
   it("refuses staff a purchase draft, as the backend does", () => {
     // purchase.routes.js: POST /purchases is requireRole('ADMIN').
     expect(can("STAFF", "purchases.draft")).toBe(false);
