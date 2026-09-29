@@ -183,11 +183,18 @@ apiClient.interceptors.response.use(
       }
     }
 
+    // body?.message only exists when OUR backend answered. A 429 or 5xx from the
+    // hosting layer in front of it (e.g. a sleeping or suspended service) has
+    // no JSON body, so say what the status means instead of "something went wrong".
     const message =
       body?.message ||
       (status === 0
         ? "Could not reach the server. Check your connection and try again."
-        : "Something went wrong. Please try again.");
+        : status === 429
+          ? "The server is busy or waking up. Please wait a minute and try again."
+          : status >= 500
+            ? "The server is not responding right now. Please try again in a minute."
+            : "Something went wrong. Please try again.");
 
     return Promise.reject(
       new ApiError(message, status, body?.code, body?.errors),
