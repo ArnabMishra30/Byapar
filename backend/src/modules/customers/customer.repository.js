@@ -15,6 +15,7 @@ const FIELDS = {
   creditLimit: true,
   creditDays: true,
   isActive: true,
+  partyId: true,
   companyId: true,
   createdAt: true,
   updatedAt: true,

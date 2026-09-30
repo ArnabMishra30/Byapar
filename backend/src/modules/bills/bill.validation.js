@@ -65,6 +65,13 @@ const newPartySchema = z.object({
   phone: z.string().trim().max(30).optional(),
   gstin: z.string().trim().max(20).optional(),
   address: z.string().trim().max(500).optional(),
+  /**
+   * An EXISTING party the shop chose for this bill, which does not have this
+   * side yet (a customer on a purchase bill, a supplier on a sale). That side
+   * is added to it instead of creating a second party. Only ever sent after a
+   * person picked it from "we found a possible match".
+   */
+  partyId: z.string().uuid('Invalid party id').optional(),
 });
 
 /** A product a bill line names that the shop does not stock yet. */

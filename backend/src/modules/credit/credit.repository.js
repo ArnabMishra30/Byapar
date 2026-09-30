@@ -91,6 +91,29 @@ export async function customerLedgerBalances(companyId, customerIds = null) {
   );
 }
 
+/**
+ * The supplier-side mirror: what we owe each supplier, credit - debit.
+ *
+ * @returns {Promise<Map<string, Decimal>>} supplierId -> balance
+ */
+export async function supplierLedgerBalances(companyId, supplierIds = null) {
+  const where = { companyId };
+  if (supplierIds) {
+    if (supplierIds.length === 0) return new Map();
+    where.supplierId = { in: supplierIds };
+  }
+
+  const rows = await prisma.supplierLedgerEntry.groupBy({
+    by: ['supplierId'],
+    where,
+    _sum: { debit: true, credit: true },
+  });
+
+  return new Map(
+    rows.map((row) => [row.supplierId, subtract(row._sum.credit ?? 0, row._sum.debit ?? 0)]),
+  );
+}
+
 // --- parties ---------------------------------------------------------------
 
 /** Every customer that has a credit limit set, or a balance worth reporting. */

@@ -3541,3 +3541,94 @@ does.
 Note on JavaScript: this project has no TypeScript, so there are no `*.types.ts` files.
 Shapes are documented with JSDoc on service functions and enforced at runtime by Zod, which
 is what actually protects the database.
+
+## Party master (customer + supplier)
+
+```
+Party                       master data only: name, contact, address, GSTIN, PAN, notes
+  ├── Customer (0..1)       sales, receivables, customer ledger, money received, credit limit
+  └── Supplier (0..1)       purchases, payables, supplier ledger, money paid
+```
+
+**A Party may have both Customer and Supplier relationships. Their receivable and
+payable balances remain independent.** A party that sells us goods worth 20,000
+and buys goods worth 8,000 owes us 8,000 and is owed 20,000; nothing reports
+"net payable 12,000", and no payment on one side can be allocated to the other,
+because allocations still name a `receivableId` or a `payableId` and those belong
+to exactly one side.
+
+### Why additive, not a replacement
+
+`Customer` and `Supplier` were kept, with a nullable, unique `partyId` each. Every
+posted invoice, bill, ledger line, payment allocation and journal line keeps
+pointing at the same customer/supplier id it always did, so no historical row is
+touched and every existing endpoint, report and test keeps working unchanged. The
+alternative - one table with a role column, and re-pointing every foreign key -
+would have rewritten the history of every shop for no accounting gain.
+
+What lives where:
+
+- **Party**: identity and contact details. Source of truth for name, phone,
+  email, address, GSTIN and state; `party.service.js` copies those onto the
+  customer and supplier rows on every change, inside one transaction holding a
+  `FOR UPDATE` lock on the party row, so the two sides can never disagree.
+- **Customer / Supplier**: everything that is about one side - credit limit,
+  payment days, opening balance, GST registration type, active flag - and every
+  balance, via the existing sub-ledgers.
+
+Balances shown for a party are read from the existing sub-ledgers
+(`credit.repository` `customerLedgerBalances` / `supplierLedgerBalances`, the
+same overdue rule as the dashboard). There is no party balance, no party ledger
+and no party journal. Creating, editing, linking or deactivating a party posts
+nothing.
+
+### Legacy endpoints
+
+`POST /customers` and `POST /suppliers` create a party in the same transaction,
+so every record the app creates has one. `PATCH` on either updates through the
+party service, keeping the other side in step. Rows created outside the app
+(test fixtures, old scripts) may have `partyId` null; they keep working and simply
+do not appear in `/parties`.
+
+### Migration `20260930090000_party_master`
+
+Additive: creates `parties`, adds `customers.partyId` and `suppliers.partyId`
+(nullable, unique, `ON DELETE SET NULL`). The backfill gives **every existing
+customer and every existing supplier its own party**, reusing the row's own id as
+the party id, so it is deterministic and safe to run twice (`WHERE partyId IS
+NULL` plus `ON CONFLICT DO NOTHING`). It never merges: a customer and a supplier
+with the same name or phone may be two businesses, and guessing wrong would mix
+their details. Shops merge explicitly with `POST /parties/:id/link`, which moves
+only the `partyId` of one record and deletes the emptied party. Rollback: drop the
+two columns and the table; nothing else depends on them.
+
+### Duplicates
+
+`party-matching.js` flags a possible duplicate on the same GSTIN, mobile (last ten
+digits, either number), email or normalised name (case, punctuation and spacing
+ignored; words are never dropped, so "Sharma Traders" and "Sharma Stores" stay
+different). A create with any match is refused with `PARTY_POSSIBLE_DUPLICATE`
+until the shop chooses "use existing" or resends with `allowDuplicate`. A name
+match is shown, never acted on.
+
+### Bill import
+
+Matching stays conservative. An exact supplier/customer match (GSTIN, phone,
+exact name) is marked `confident` and pre-selected; a similar-name match is only
+offered. `possibleParties` looks across both sides, so a purchase bill from a
+business that is already a customer finds that party; choosing it sends
+`newParty.partyId`, and confirm adds the supplier side to that party through
+`party.service.ensureRoleForBill` before posting through the ordinary purchase
+service. The model's text never becomes a party id on its own.
+
+### Known limitations
+
+- A party has at most one customer side and one supplier side.
+- No settlement/netting of a receivable against a payable. That needs its own
+  document (a contra entry through `gl-posting.service.js`), not a shortcut.
+- Legacy customers and suppliers that are the same business stay as two parties
+  until someone links them.
+- Customer and supplier names remain unique per company, so a party's name must be
+  free on each side it uses.
+- Changing a party's name changes the name shown on its old documents, as renaming
+  a customer always has; amounts, taxes and journal entries are unchanged.

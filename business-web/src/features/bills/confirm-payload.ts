@@ -13,6 +13,8 @@ export interface NewParty {
   phone?: string;
   gstin?: string;
   address?: string;
+  /** An existing party (from "we found a possible match") to add this side to. */
+  partyId?: string;
 }
 
 export interface NewProduct {
@@ -71,6 +73,12 @@ export interface BuildArgs {
   /** Whether an unmatched party should be added. */
   createParty: boolean;
   /**
+   * An existing party the reviewer chose that is not yet on this side (a
+   * customer on a purchase bill). Wins over createParty: the same business is
+   * never added twice.
+   */
+  linkParty?: { partyId: string; name: string } | null;
+  /**
    * The store to create, for a shop that has none yet.
    *
    * Left out when a store is chosen, or when the shop has one already: the
@@ -101,6 +109,7 @@ export function buildConfirmPayload({
   lineProductIds,
   createLine,
   createParty,
+  linkParty = null,
   newWarehouse = null,
   payment = null,
 }: BuildArgs): ConfirmPayload {
@@ -134,7 +143,9 @@ export function buildConfirmPayload({
 
   const partyName = (data.partyName ?? "").trim();
   const newParty: NewParty | null =
-    !partyId && createParty && partyName
+    !partyId && linkParty
+      ? { name: linkParty.name, partyId: linkParty.partyId }
+      : !partyId && createParty && partyName
       ? {
           name: partyName,
           ...(isUsablePhone(data.partyPhone) ? { phone: data.partyPhone!.trim() } : {}),

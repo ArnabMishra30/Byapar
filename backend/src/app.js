@@ -18,6 +18,7 @@ import { warehouseRoutes } from './modules/warehouses/warehouse.routes.js';
 import { productRoutes } from './modules/products/product.routes.js';
 import { supplierRoutes } from './modules/suppliers/supplier.routes.js';
 import { customerRoutes } from './modules/customers/customer.routes.js';
+import { partyRoutes } from './modules/parties/party.routes.js';
 import { inventoryRoutes } from './modules/inventory/inventory.routes.js';
 import { purchaseRoutes } from './modules/purchases/purchase.routes.js';
 import { purchaseReturnRoutes } from './modules/purchase-returns/purchase-return.routes.js';
@@ -139,6 +140,8 @@ app.use('/api/v1/warehouses', warehouseRoutes);
 app.use('/api/v1/products', productRoutes);
 app.use('/api/v1/suppliers', supplierRoutes);
 app.use('/api/v1/customers', customerRoutes);
+// A party is the person behind a customer and/or a supplier. See modules/parties.
+app.use('/api/v1/parties', partyRoutes);
 
 // Inventory ledger
 app.use('/api/v1/inventory', inventoryRoutes);

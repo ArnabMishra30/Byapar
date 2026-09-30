@@ -78,6 +78,7 @@ model Company {
   products              Product[]
   suppliers             Supplier[]
   customers             Customer[]
+  parties               Party[]
   inventoryBalances     InventoryBalance[]
   stockMovements        StockMovement[]
   purchases             Purchase[]
@@ -286,6 +287,50 @@ model Product {
   @@map("products")
 }
 
+/// The real-world person or business the shop deals with.
+///
+/// A party is MASTER DATA ONLY. The money lives where it always has: a party
+/// that buys from us has one Customer row (receivables, customer ledger), a
+/// party that sells to us has one Supplier row (payables, supplier ledger), and
+/// a party that does both has one of each. The two sides are never netted.
+/// Creating or editing a party posts nothing to the general ledger.
+///
+/// Common contact details live here and are copied onto the Customer/Supplier
+/// rows so every existing screen, report and posted document keeps working
+/// unchanged.
+model Party {
+  id             String  @id @default(uuid())
+  companyId      String
+  name           String
+  contactPerson  String?
+  phone          String?
+  alternatePhone String?
+  email          String?
+  address        String?
+  city           String?
+  /// Two-digit GST state code. Used for the state even by shops without GST.
+  stateCode      String?
+  pincode        String?
+  country        String?
+  gstin          String?
+  pan            String?
+  notes          String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company  Company   @relation(fields: [companyId], references: [id])
+  customer Customer?
+  supplier Supplier?
+
+  @@index([companyId])
+  @@index([companyId, phone])
+  @@index([companyId, gstin])
+  @@map("parties")
+}
+
 model Supplier {
   id                  String              @id @default(uuid())
   companyId           String
@@ -315,6 +360,11 @@ model Supplier {
   updatedAt DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id])
+
+  /// The party this is one side of. Null only for a row created outside the
+  /// application (tests, old scripts); the app always sets it.
+  partyId String? @unique
+  party   Party?  @relation(fields: [partyId], references: [id])
 
   purchases     Purchase[]
   expenses      Expense[]
@@ -355,6 +405,11 @@ model Customer {
   updatedAt DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id])
+
+  /// The party this is one side of. Null only for a row created outside the
+  /// application (tests, old scripts); the app always sets it.
+  partyId String? @unique
+  party   Party?  @relation(fields: [partyId], references: [id])
 
   salesInvoices SalesInvoice[]
   salesReturns  SalesReturn[]

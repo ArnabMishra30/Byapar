@@ -4,6 +4,7 @@ import * as supplierService from '../suppliers/supplier.service.js';
 import * as supplierRepository from '../suppliers/supplier.repository.js';
 import * as customerService from '../customers/customer.service.js';
 import * as customerRepository from '../customers/customer.repository.js';
+import * as partyService from '../parties/party.service.js';
 import * as categoryService from '../categories/category.service.js';
 import * as categoryRepository from '../categories/category.repository.js';
 import * as unitRepository from '../units/unit.repository.js';
@@ -185,6 +186,11 @@ export async function resolveWarehouseId(currentUser, newWarehouse) {
  */
 export async function createPartyFromBill(currentUser, direction, party) {
   const { companyId } = currentUser;
+
+  // The shop picked an existing party: give it this side (if it does not have
+  // it already) rather than creating the same business a second time.
+  if (party.partyId) return partyService.ensureRoleForBill(currentUser, party.partyId, direction);
+
   const service = direction === 'IN' ? supplierService : customerService;
   const repository = direction === 'IN' ? supplierRepository : customerRepository;
 

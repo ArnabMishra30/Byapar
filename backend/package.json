@@ -22,6 +22,7 @@
     "seed:platform:prod": "node --env-file=.env.production prisma/seed-platform-admin.js",
     "db:status:prod": "node --env-file=.env.production node_modules/prisma/build/index.js migrate status",
     "seed:demo": "node prisma/seed-demo.js",
+    "seed:demo:parties": "node prisma/seed-demo-parties.js",
     "defaults:ensure": "node prisma/ensure-defaults.js",
     "defaults:ensure:prod": "node --env-file=.env.production prisma/ensure-defaults.js"
   },

@@ -227,6 +227,9 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
   // default, so the common case - a new supplier, a new item - is one tap, while
   // still being visible enough to untick when a name was misread.
   const [createParty, setCreateParty] = React.useState(true);
+  // An existing party the reviewer chose from "we found a possible match" that
+  // is not yet on this side of the business. Confirming adds that side to it.
+  const [linkParty, setLinkParty] = React.useState<{ partyId: string; name: string } | null>(null);
   const [createLine, setCreateLine] = React.useState<boolean[]>([]);
   const shouldCreateLine = (index: number) => createLine[index] ?? true;
 
@@ -277,7 +280,9 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
     if (!suggested || prefilled.current) return;
     prefilled.current = true;
 
-    if (suggested.party) {
+    // Only a certain match is pre-selected. A "similar name" is offered below
+    // as a possible match instead, for the reviewer to accept or ignore.
+    if (suggested.party && suggested.party.confident !== false) {
       setPartyId((current) => current || suggested.party!.id);
       setPartyLabel((current) => current ?? suggested.party!.name);
     }
@@ -376,6 +381,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
         lineProductIds,
         createLine: data.lines.map((_, index) => shouldCreateLine(index)),
         createParty,
+        linkParty,
         newWarehouse: warehouseWillBeCreated ? { name: warehouseName.trim() } : null,
         payment: paidNow > 0 ? { amount: String(paidNow), method: paymentMethod } : null,
       });
@@ -407,8 +413,32 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
   // leaving somebody to guess why the button does nothing.
   const partyWillBeCreated = !partyId && createParty && Boolean(data.partyName?.trim());
 
+  // Possible matches the reviewer has not acted on yet: an uncertain name match,
+  // plus parties from either side of the business. None is ever chosen for them.
+  const possibleMatches = (() => {
+    const suggested = suggestionsQuery.data;
+    if (!suggested) return [];
+    const options: { key: string; name: string; roleId: string | null; partyId: string | null; note: string }[] = [];
+    if (suggested.party && suggested.party.confident === false) {
+      options.push({ key: suggested.party.id, name: suggested.party.name, roleId: suggested.party.id, partyId: null, note: "similar name" });
+    }
+    for (const candidate of suggested.possibleParties ?? []) {
+      if (candidate.roleId && options.some((option) => option.roleId === candidate.roleId)) continue;
+      options.push({
+        key: candidate.partyId,
+        name: candidate.name,
+        roleId: candidate.hasRole ? candidate.roleId : null,
+        partyId: candidate.hasRole ? null : candidate.partyId,
+        note: candidate.hasRole
+          ? candidate.matchedBy === "similar-name" ? "similar name" : `same ${candidate.matchedBy}`
+          : `already your ${candidate.relationship === "CUSTOMER" ? "customer" : "supplier"}`,
+      });
+    }
+    return options;
+  })();
+
   const problems: string[] = [];
-  if (!partyId && !partyWillBeCreated) {
+  if (!partyId && !linkParty && !partyWillBeCreated) {
     problems.push(isPurchase ? "Choose the supplier" : "Choose the customer");
   }
   // Only worth asking about when there is a real choice to make.
@@ -548,7 +578,51 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
               />
             </Field>
 
-            {!partyId && (data.partyName ?? "").trim() && (
+            {!partyId && linkParty ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
+                <span className="min-w-0">
+                  Using <span className="font-medium">{linkParty.name}</span>. They will also become one of your{" "}
+                  {isPurchase ? "suppliers" : "customers"} when you record this bill.
+                </span>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setLinkParty(null)}>
+                  Undo
+                </Button>
+              </div>
+            ) : null}
+
+            {!partyId && !linkParty && possibleMatches.length > 0 ? (
+              <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/5 p-3">
+                <p className="text-sm font-medium">We found a possible match</p>
+                <p className="text-xs text-muted-foreground">
+                  Check the bill and pick the right one, or leave these and choose someone else.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {possibleMatches.map((option) => (
+                    <Button
+                      key={option.key}
+                      type="button"
+                      variant="outline"
+                      className="h-auto min-h-[44px] justify-between gap-2 whitespace-normal text-left"
+                      onClick={() => {
+                        if (option.roleId) {
+                          setPartyId(option.roleId);
+                          setPartyLabel(option.name);
+                        } else if (option.partyId) {
+                          setLinkParty({ partyId: option.partyId, name: option.name });
+                        }
+                      }}
+                    >
+                      <span className="min-w-0 font-medium">{option.name}</span>
+                      <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                        {option.roleId ? option.note : `${option.note} · add as ${isPurchase ? "supplier" : "customer"}`}
+                      </span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {!partyId && !linkParty && (data.partyName ?? "").trim() && (
               <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-dashed p-3">
                 <input
                   type="checkbox"

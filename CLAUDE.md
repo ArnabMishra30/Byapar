@@ -6,11 +6,11 @@ Three independent packages (no npm workspaces; each has its own lockfile):
 - `frontend/`: **platform/operator console** (PLATFORM_ADMIN, SALES_STAFF), Next 14 App Router + TS, port 3001. Its shop screens are stubs.
 - `business-web/`: **shop app** (ADMIN = "Shop Owner", STAFF) + public landing, Next 14 App Router + TS, port 3002
 
-Context synced at: 638b877 (2026-09-26; auth moved to httpOnly cookies + refresh tokens 2026-09-28, uncommitted)
+Context synced at: f2c3354 (2026-09-30; party master added 2026-09-30, uncommitted)
 
 ## Commands
 - Root forwards via `--prefix`: `npm run dev:backend | dev:admin | dev:business`, `npm test` (all three), `build:admin`, `build:business`
-- backend: `dev` (node --watch), `test` (vitest + supertest, real test DB from `backend/.env.test`, serial, 20s timeout), `prisma:generate|migrate|deploy|studio`, `prisma:seed`, `seed:platform[:prod]`, `seed:demo`, `defaults:ensure[:prod]`, `start:render` (= `prisma migrate deploy && node src/server.js`)
+- backend: `dev` (node --watch), `test` (vitest + supertest, real test DB from `backend/.env.test`, serial, 20s timeout), `prisma:generate|migrate|deploy|studio`, `prisma:seed`, `seed:platform[:prod]`, `seed:demo`, `seed:demo:parties` (demo parties + posted docs, local DB only), `defaults:ensure[:prod]`, `start:render` (= `prisma migrate deploy && node src/server.js`)
 - frontend / business-web: `dev`, `build`, `lint`, `test` (vitest+jsdom); business-web also `typecheck`
 
 ## Directory map
@@ -22,12 +22,13 @@ Context synced at: 638b877 (2026-09-26; auth moved to httpOnly cookies + refresh
 - `backend/prisma/`: `schema.prisma` (~2100 lines), migrations, seed scripts. `backend/tests/{unit,integration,helpers}`. `backend/docs/{architecture,api}.md`, `backend/PROJECT_PLAN.md`
 - `frontend/src/`: `app/(auth)/admin/login`, `app/(dashboard)/{platform,admin,...}`, `lib/api/*` (axios client + per-domain), `lib/auth/`, `features/platform/`, `components/{ui,shared,layout}`
 - `business-web/src/`: `app/shop/(app)/*` (thin page wrappers), `features/<domain>/` (real page impls), `lib/api/*` (+ `extended.ts`: registersApi paid/due, creditBookApi, dueListsApi, returns, stockApi, gstReportsApi), `lib/auth/`, `lib/permissions/`, `lib/constants.ts` (APP_CONFIG, ROUTES, DETAIL_ROUTES, NAVIGATION), `components/{ui,shared,layout}`
-- business-web routes (all under /shop): dashboard, quick-billing, bills; sales(/invoices,/new,/[id],/[id]/edit,/returns…); purchases(/bills,/new,/[id],/returns…,/payables); stock(/products,/products/[id],/in,/out,/adjustments,/low-stock); customers(/new,/import,/[id]); suppliers; credit-book; money/received|paid; expenses; cash-bank; reports/{sales,purchases,stock,customers,suppliers,expenses,profit-loss,gst}; gst; settings(/staff); profile; subscription; recycle-bin; accounting/*. Old /shop/inventory|credit|money-in|money-out|reports redirect (next.config)
+- business-web routes (all under /shop): dashboard, quick-billing, bills; sales(/invoices,/new,/[id],/[id]/edit,/returns…); purchases(/bills,/new,/[id],/returns…,/payables); stock(/products,/products/[id],/in,/out,/adjustments,/low-stock); parties(/new,/[id]); customers(/new,/import,/[id]); suppliers; credit-book; money/received|paid; expenses; cash-bank; reports/{sales,purchases,stock,customers,suppliers,expenses,profit-loss,gst}; gst; settings(/staff); profile; subscription; recycle-bin; accounting/*. Old /shop/inventory|credit|money-in|money-out|reports redirect (next.config)
 - business-web rules: NAVIGATION lists only backend-backed pages (test 26b checks a page.tsx exists per link; test 27 forbids "soon"); missing backend features are shown in `<NotAvailable>` cards on module pages; money figures only from API (no frontend arithmetic); shared layout: collapsible sidebar sections, Ctrl/Cmd+K command menu (`components/layout/command-menu.tsx`), mobile bottom tab bar; print via `PrintActions` + `data-print-hide`; grid/flex items need `min-w-0` (Card, NativeSelect, DateRangeFilter have it) to avoid 320px overflow
 
 ## Backend modules
 - Core: auth (login/me), users, companies (`company-defaults.js` seeds new shop), company-settings, health
 - Masters: categories, units, taxes, warehouses, products, suppliers, customers
+- parties: `Party` = person/business behind a Customer and/or Supplier (0..1 each via `partyId`). Master data only, no JE. `party.service.js` copies name/phone/email/address/gstin/stateCode to both sides under a row lock; customer/supplier create+PATCH go through it. Balances read from existing sub-ledgers; receivable/payable never netted. `party-matching.js` = duplicate rules (GSTIN/mobile/email/name, never auto-merge)
 - inventory: `InventoryBalance` + immutable `StockMovement` ledger, moving weighted-average cost, row locks via `$queryRaw`
 - Purchasing: purchases (`purchase.calculator.js`), purchase-returns, supplier-payables (+ledger), supplier-payments (allocations)
 - Selling: sales (`sales.calculator.js`), sales-returns, customer-receivables (+ledger), customer-payments
@@ -42,7 +43,7 @@ Context synced at: 638b877 (2026-09-26; auth moved to httpOnly cookies + refresh
 ## Data model (`backend/prisma/schema.prisma`)
 - Tenant root `Company` (1:1 `CompanySettings`); nearly every model has `companyId`
 - `User`: role ADMIN | STAFF | PLATFORM_ADMIN | SALES_STAFF, nullable `companyId` (null for platform users), `permissions String[]`
-- Masters: Category, Unit, Tax, Warehouse, Product, Supplier, Customer, TaxClassification
+- Masters: Category, Unit, Tax, Warehouse, Product, Supplier, Customer, TaxClassification; Party (Customer.partyId / Supplier.partyId nullable unique; migration `20260930090000_party_master` backfills one party per row, no merging)
 - Stock: InventoryBalance (unique product+warehouse), StockMovement
 - Purchase side: Purchase/Item, PurchaseReturn/Item, SupplierPayable, SupplierLedgerEntry, SupplierPayment/Allocation
 - Sales side: SalesInvoice/Item, SalesReturn/Item, CustomerReceivable, CustomerLedgerEntry, CustomerPayment/Allocation
@@ -55,6 +56,7 @@ Context synced at: 638b877 (2026-09-26; auth moved to httpOnly cookies + refresh
 ## API surface (`/api/v1`, mounted in `backend/src/app.js`)
 - Public: `GET /health`, `POST /auth/login|refresh|logout`, `GET /public/plans`. Everything else `router.use(requireAuth)`.
 - auth, users, companies, company-settings, masters, inventory
+- parties: list/summary/possible-matches/get, customer-ledger, supplier-ledger, statement; POST /, PATCH /:id, /:id/status, POST /:id/relationships, /:id/link (ADMIN writes; reads ADMIN+STAFF, platform users 403). Create refuses possible duplicates (409 PARTY_POSSIBLE_DUPLICATE) unless allowDuplicate
 - purchases, purchase-returns, supplier-payables, supplier-payments (ledger/credit also on `/suppliers`)
 - sales, sales-returns, customer-receivables, customer-payments (ledger/credit also on `/customers`)
 - expenses, accounts, journal-entries, general-ledger, accounting, tax, dashboard, reports, credit, opening-balances, accounting-periods
@@ -76,7 +78,7 @@ Context synced at: 638b877 (2026-09-26; auth moved to httpOnly cookies + refresh
 - Sale post: `backend/src/modules/sales/sales.service.js` `post` → tenant checks → credit limit (`credit/credit-limit.service.js`) → GST (`tax/gst-context.service.js`, `gst.calculator.js`) → stock out (`inventory.service.js`) → receivable → GL (`accounting/gl-posting.service.js`) → doc number; one retryable transaction
 - Purchase post: `purchases/purchase.service.js` `post` mirrors it (stock in at WAC → payable → GL). Returns reverse.
 - Payments: customer-/supplier-payments allocate against receivables/payables + ledger + GL
-- Bill OCR: `POST /bills` stores file → LlamaExtract (upload/job/poll) → validated draft → user reviews with bill-matching suggestions → `confirm` posts via purchase/sales services + `bill-payment.service.js`. No `LLAMA_API_KEY` → 503.
+- Bill OCR: suggestions return `party.confident` + `possibleParties` (both sides); confirm `newParty.partyId` adds the needed side to an existing party (`party.service.ensureRoleForBill`). `POST /bills` stores file → LlamaExtract (upload/job/poll) → validated draft → user reviews with bill-matching suggestions → `confirm` posts via purchase/sales services + `bill-payment.service.js`. No `LLAMA_API_KEY` → 503.
 - Periods: period-guard blocks posting into closed periods; opening balances = one balanced JE
 - Frontend shop docs: sales/purchases share config-driven module `business-web/src/features/documents/config.ts`
 

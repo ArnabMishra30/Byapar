@@ -48,6 +48,26 @@ export interface PartySuggestion {
   name: string;
   /** gstin | phone | name | similar-name - what the match was based on. */
   matchedBy: string;
+  /**
+   * False for a name that merely contains another. Such a match is offered, never
+   * pre-selected. Missing from older servers, where it means true.
+   */
+  confident?: boolean;
+}
+
+/**
+ * A party the bill might be with, from either side of the business. `hasRole`
+ * false means they exist but not on this side yet - a customer on a purchase
+ * bill - and choosing them makes them a supplier too.
+ */
+export interface PossibleParty {
+  partyId: string;
+  name: string;
+  relationship: "CUSTOMER" | "SUPPLIER" | "BOTH";
+  hasRole: boolean;
+  /** The supplier (IN) or customer (OUT) id, when hasRole. */
+  roleId: string | null;
+  matchedBy: string;
 }
 
 /** The product a bill line appears to be, where there is a confident answer. */
@@ -60,6 +80,8 @@ export interface LineSuggestion {
 
 export interface BillSuggestions {
   party: PartySuggestion | null;
+  /** Offered for the reviewer to choose from; never chosen automatically. */
+  possibleParties?: PossibleParty[];
   lines: LineSuggestion[];
 }
 
@@ -69,6 +91,8 @@ export interface NewPartyInput {
   phone?: string;
   gstin?: string;
   address?: string;
+  /** An existing party to give this side to, instead of creating a new one. */
+  partyId?: string;
 }
 
 /** A store to create for a shop that has none yet. */

@@ -125,6 +125,17 @@ Creates one account of each role plus a demo shop. **Refuses to run with
 
 Password for all four: `Demo@12345`
 
+To try the party master, add demo parties with real posted purchases, sales and
+payments (runs `seed:demo` first; same local-only safety checks):
+
+```bash
+cd backend && npm run seed:demo:parties
+```
+
+Then sign in as the shop owner and open http://localhost:3002/shop/parties.
+"XYZ Traders" is both a customer and a supplier: it owes the shop 6,000 and the
+shop owes it 15,000, shown as two separate numbers.
+
 The demo shop starts with **no subscription**, which is deliberate — grant one
 from the platform console to see the subscription guard release. Credentials live
 in a seed script, never in frontend source and never on a login screen: a login
@@ -588,6 +599,7 @@ docs/
 | `products` | Products with category, unit and optional tax. Decimal pricing. **No stock field.** |
 | `suppliers` | Supplier master with opening balance and credit limit. No payable ledger yet. |
 | `customers` | Customer master, same shape as suppliers. No receivable ledger yet. |
+| `parties` | The person or business behind a customer, a supplier, or both. One party, two independent sides: **a party may have both customer and supplier relationships; their receivable and payable balances remain independent** and are never netted. Master data only (no journal entries). Duplicate detection by GSTIN, mobile, email and name, never auto-merged; explicit linking of existing records. See `backend/docs/architecture.md`, "Party master". |
 | `company-settings` | One row per company: currency, timezone, date format, prefixes, financial year. |
 | `inventory` | Stock per product per warehouse, immutable movement ledger, opening stock, adjustments, moving weighted average costing. |
 | `purchases` | Supplier bills. Drafts (no stock effect) -> posting (stock in, permanent). Discounts, tax, snapshots, document numbering. |

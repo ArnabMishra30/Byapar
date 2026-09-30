@@ -935,7 +935,119 @@ curl -X POST http://localhost:4000/api/v1/suppliers \
 ## Customers — `/api/v1/customers`
 
 Response key: `customer`. Identical fields, validation and behaviour to suppliers.
-No receivable ledger, sales or payments exist yet.
+
+Every customer now belongs to a **party** (see below). The response gains one
+field, `partyId`; nothing else changes. `POST /customers` creates the party in the
+same transaction. `PATCH /customers/:id` updates the party too, and copies the
+common details (name, phone, email, address, GSTIN, state) to the party's supplier
+side if it has one. The same applies to `/suppliers`.
+
+---
+
+## Parties — `/api/v1/parties`
+
+A party is the real person or business the shop deals with:
+
+```
+Party
+  ├── Customer   sales, receivables, customer ledger, money received
+  └── Supplier   purchases, payables, supplier ledger, money paid
+```
+
+**A party may have both customer and supplier relationships. Their receivable and
+payable balances remain independent.** Nothing nets one against the other, and no
+endpoint here returns a single "net" figure.
+
+A party is master data. Creating, editing, linking or deactivating one writes no
+journal entry and changes no posted document. Sales, purchases and payments still
+take `customerId` / `supplierId`; a party's ids are `customerId` and `supplierId`
+on its response.
+
+Reads: ADMIN and STAFF. Writes: ADMIN. Platform users (no company) get 403.
+Another company's party is a 404, like one that does not exist.
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/parties` | List. `?relationship=ALL\|CUSTOMER\|SUPPLIER\|BOTH`, `?search=` (name, mobile, other mobile, email, GSTIN, contact person), `?isActive=`, paging. Each row has `receivable` and `payable` (null for a side the party does not have) and `lastTransactionDate`. |
+| GET | `/parties/summary` | `{ counts: { total, customers, suppliers, both } }`. "customers" and "suppliers" include parties that are both. |
+| GET | `/parties/possible-matches` | `?name=&phone=&alternatePhone=&email=&gstin=&excludeId=`. Parties that might be the same one, strongest first, with `reasons` (`gstin`, `phone`, `email`, `name`). Advisory only. |
+| GET | `/parties/:id` | The party, plus `customer: { receivable, overdue, overdueCount, creditLimit, isUnlimited, creditDays, ... } \| null` and `supplier: { payable, overdue, ... } \| null`. |
+| GET | `/parties/:id/customer-ledger` | The existing customer ledger (`/customers/:customerId/ledger`), reached through the party. 404 `PARTY_NOT_A_CUSTOMER` if it has no customer side. |
+| GET | `/parties/:id/supplier-ledger` | The supplier mirror. 404 `PARTY_NOT_A_SUPPLIER`. |
+| GET | `/parties/:id/statement` | `{ party, customer, supplier }`: the existing customer and supplier statements side by side (null for a missing side). `?fromDate=&toDate=`. |
+| POST | `/parties` | Create. Body below. 201 `{ party }`. |
+| PATCH | `/parties/:id` | Edit common details and/or `customer` / `supplier` terms. Copies common details to both sides. Row-locked, so concurrent edits cannot leave the two sides with different names. |
+| PATCH | `/parties/:id/status` | `{ isActive }`. Applies to the party and both sides. History is untouched. |
+| POST | `/parties/:id/relationships` | `{ role: "CUSTOMER"\|"SUPPLIER", terms? }`. Adds the missing side. Idempotent. |
+| POST | `/parties/:id/link` | `{ customerId }` or `{ supplierId }`. Joins an existing record to this party (the explicit merge). The record keeps its id, so its documents, ledger and payments are unchanged; it takes the party's name and details, fills blanks on the party from its old party, and the emptied old party is deleted. 409 `PARTY_ROLE_TAKEN` if this party already has that side; 409 `PARTY_LINK_CONFLICT` if the record's current party also has the other side (refused rather than splitting it). |
+
+### POST /api/v1/parties
+
+```json
+{
+  "name": "XYZ Traders",
+  "relationship": "BOTH",
+  "phone": "9876543210",
+  "alternatePhone": null,
+  "email": "xyz@example.com",
+  "contactPerson": "Mr. Verma",
+  "address": "14 Market Yard",
+  "city": "Pune",
+  "stateCode": "27",
+  "pincode": "411037",
+  "country": null,
+  "gstin": null,
+  "pan": null,
+  "notes": null,
+  "customer": { "creditDays": 15, "creditLimit": "50000" },
+  "supplier": { "creditDays": 30 },
+  "allowDuplicate": false
+}
+```
+
+Only `name` and `relationship` are required. **GST is optional**: a GSTIN is
+validated only when one is sent. A party with a GSTIN defaults to `REGULAR`
+registration on each side, one without to `UNREGISTERED` (override with
+`customer.gstRegistrationType` / `supplier.gstRegistrationType`). `stateCode` is
+the two-digit state code and is used for the state even by shops without GST.
+
+**Duplicates are never created silently.** If another party in the company has the
+same mobile (last ten digits, either number), GSTIN, email or normalised name, the
+request fails:
+
+```json
+{ "success": false, "code": "PARTY_POSSIBLE_DUPLICATE", "message": "A similar party already exists",
+  "errors": [{ "field": "party", "message": "XYZ Traders (same phone)", "id": "...", "name": "XYZ Traders",
+               "relationship": "CUSTOMER", "reasons": ["phone"] }] }
+```
+
+The client shows these and either uses one (adding the missing side with
+`/relationships`) or resends with `allowDuplicate: true`. Nothing is ever merged
+automatically. Customer and supplier names stay unique per company, so a name
+already used by another customer (or supplier) is refused with 409
+`CUSTOMER_NAME_TAKEN` / `SUPPLIER_NAME_TAKEN` even with `allowDuplicate`.
+
+### Bill import and parties
+
+`GET /bills/:id/suggestions` now also returns:
+
+- `party.confident`: false for a match on a similar (not identical) name. Clients
+  offer such a match instead of pre-selecting it.
+- `possibleParties`: up to five parties from **either** side of the business that
+  match the bill's GSTIN, phone or name, each with `hasRole` (already a supplier
+  for an IN bill / customer for an OUT bill) and `roleId`. Several candidates
+  can come back; none is chosen for the shop.
+
+`POST /bills/:id/confirm` accepts `newParty.partyId`: an existing party to use.
+An IN bill gives it a supplier side (if it lacks one) and posts against that; an
+OUT bill does the same with a customer side. The party must belong to the
+caller's company (404 otherwise). Without a chosen supplier/customer, a new party
+or a `partyId`, confirm fails validation and nothing is posted.
+
+### Dashboard
+
+`GET /dashboard` gains `parties: { total, customers, suppliers, both }`.
+`balances.customerReceivables` and `balances.supplierPayables` stay separate.
 
 ---
 

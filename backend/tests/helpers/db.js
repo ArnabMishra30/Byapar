@@ -54,6 +54,8 @@ export async function resetDatabase() {
   await prisma.warehouse.deleteMany();
   await prisma.supplier.deleteMany();
   await prisma.customer.deleteMany();
+  // Parties after their customer and supplier rows, which point at them.
+  await prisma.party.deleteMany();
   await prisma.companySettings.deleteMany();
   // The SaaS layer. Bills reference companies and users; payments reference
   // subscriptions; subscriptions reference companies, plans and users. All of it

@@ -213,6 +213,8 @@ export interface Dashboard {
 export interface Customer {
   id: string;
   name: string;
+  /** The party (person or business) this customer or supplier is one side of. */
+  partyId?: string | null;
   phone?: string | null;
   email?: string | null;
   address?: string | null;

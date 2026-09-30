@@ -19,6 +19,7 @@ import * as accountingReportService from '../accounting/report.service.js';
 import { sumPostedExpenses } from './expense-report.service.js';
 import * as creditRepository from '../credit/credit.repository.js';
 import { deriveCreditPosition } from '../credit/credit-limit.service.js';
+import * as partyRepository from '../parties/party.repository.js';
 
 /**
  * A share of a whole, as a 2dp percentage string.
@@ -287,6 +288,7 @@ export async function getDashboard(currentUser, query = {}) {
     creditBalances,
     collectionsToday,
     supplierPaymentsToday,
+    partyCounts,
   ] = await Promise.all([
     movementFor(companyId, periods.today),
     movementFor(companyId, periods.yesterday),
@@ -316,6 +318,7 @@ export async function getDashboard(currentUser, query = {}) {
       fromDate: periods.today.fromDate,
       toDate: periods.today.toDate,
     }),
+    partyRepository.countByRelationship(companyId),
   ]);
 
   const inventory = summariseInventory(balances);
@@ -351,6 +354,11 @@ export async function getDashboard(currentUser, query = {}) {
     // A client uses this to decide whether GST screens are worth showing at all.
     // Nothing else on this dashboard depends on it.
     gstEnabled: context.gstEnabled,
+
+    // Who the shop deals with. A party that is both a customer and a supplier
+    // counts in both, and in `both`. Their balances are NOT combined anywhere:
+    // see balances.customerReceivables and balances.supplierPayables.
+    parties: partyCounts,
 
     today: todayMovement.public,
     thisWeek: weekMovement.public,

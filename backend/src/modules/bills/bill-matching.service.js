@@ -1,6 +1,7 @@
 import * as productRepository from '../products/product.repository.js';
 import * as supplierRepository from '../suppliers/supplier.repository.js';
 import * as customerRepository from '../customers/customer.repository.js';
+import * as partyRepository from '../parties/party.repository.js';
 
 // MATCHING WHAT WAS READ TO WHAT THE SHOP ALREADY HAS.
 //
@@ -145,5 +146,69 @@ export async function suggestMatches(companyId, direction, extracted) {
     matchLines(companyId, extracted?.lines ?? []),
   ]);
 
-  return { party, lines };
+  // Only an identifier or an exact name is certain enough to pre-select. A
+  // name that merely contains another is shown as a possible match instead,
+  // and the person reviewing decides.
+  const confident = Boolean(party) && party.matchedBy !== 'similar-name';
+  const possibleParties = confident ? [] : await findPossibleParties(companyId, direction, extracted);
+
+  return { party: party ? { ...party, confident } : null, possibleParties, lines };
+}
+
+/**
+ * Parties the bill might be with, when no single customer/supplier is certain.
+ *
+ * Unlike matchParty this looks across BOTH sides: a purchase bill from somebody
+ * the shop only ever sold to finds that party, marked `hasRole: false`, so the
+ * shop can choose to make them a supplier too instead of typing them in twice.
+ * Several candidates may come back; none is ever chosen automatically.
+ *
+ * @param {'IN'|'OUT'} direction
+ * @returns {Promise<Array<{ partyId: string, name: string, relationship: string, hasRole: boolean, roleId: string|null, matchedBy: string }>>}
+ */
+export async function findPossibleParties(companyId, direction, extracted) {
+  const candidates = await partyRepository.findAllForMatching(companyId);
+  const active = candidates.filter((candidate) => candidate.isActive);
+  if (active.length === 0) return [];
+
+  const gstin = normalise(extracted?.partyGstin).replace(/\s+/g, '');
+  const phone = digitsOnly(extracted?.partyPhone).slice(-10);
+  const name = normalise(extracted?.partyName);
+
+  const matchedBy = (candidate) => {
+    if (gstin.length === 15 && normalise(candidate.gstin).replace(/\s+/g, '') === gstin) return 'gstin';
+    if (phone.length === 10) {
+      const phones = [candidate.phone, candidate.alternatePhone].map((v) => digitsOnly(v).slice(-10));
+      if (phones.includes(phone)) return 'phone';
+    }
+    if (!name) return null;
+    const candidateName = normalise(candidate.name);
+    if (candidateName === name) return 'name';
+    if (name.length >= 4 && candidateName.length >= 4) {
+      if (candidateName.includes(name) || name.includes(candidateName)) return 'similar-name';
+    }
+    return null;
+  };
+
+  const order = { gstin: 0, phone: 1, name: 2, 'similar-name': 3 };
+  const roleKey = direction === 'IN' ? 'supplier' : 'customer';
+
+  return active
+    .map((candidate) => ({ candidate, by: matchedBy(candidate) }))
+    .filter((row) => row.by)
+    .sort((a, b) => order[a.by] - order[b.by])
+    .slice(0, 5)
+    .map(({ candidate, by }) => ({
+      partyId: candidate.id,
+      name: candidate.name,
+      relationship:
+        candidate.customer && candidate.supplier
+          ? 'BOTH'
+          : candidate.customer
+            ? 'CUSTOMER'
+            : 'SUPPLIER',
+      hasRole: Boolean(candidate[roleKey]),
+      roleId: candidate[roleKey]?.id ?? null,
+      matchedBy: by,
+    }));
 }

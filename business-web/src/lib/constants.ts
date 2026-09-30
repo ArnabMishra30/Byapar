@@ -75,6 +75,10 @@ export const ROUTES = {
   stockAdjustments: `${SHOP_PREFIX}/stock/adjustments`,
   lowStock: `${SHOP_PREFIX}/stock/low-stock`,
 
+  // A party is the business behind a customer, a supplier, or both.
+  parties: `${SHOP_PREFIX}/parties`,
+  newParty: `${SHOP_PREFIX}/parties/new`,
+
   customers: `${SHOP_PREFIX}/customers`,
   newCustomer: `${SHOP_PREFIX}/customers/new`,
   importCustomers: `${SHOP_PREFIX}/customers/import`,
@@ -117,6 +121,7 @@ export const DETAIL_ROUTES = {
   product: (id: string) => `${SHOP_PREFIX}/stock/products/${id}`,
   customer: (id: string) => `${SHOP_PREFIX}/customers/${id}`,
   supplier: (id: string) => `${SHOP_PREFIX}/suppliers/${id}`,
+  party: (id: string) => `${SHOP_PREFIX}/parties/${id}`,
   bill: (id: string) => `${SHOP_PREFIX}/bills/${id}`,
 };
 
@@ -227,6 +232,13 @@ export const NAVIGATION: NavSection[] = [
       { title: "Stock Out", href: ROUTES.stockOut, icon: "PackageMinus" },
       { title: "Stock Adjustments", href: ROUTES.stockAdjustments, icon: "SlidersHorizontal" },
       { title: "Low Stock", href: ROUTES.lowStock, icon: "TriangleAlert" },
+    ],
+  },
+  {
+    title: "Parties",
+    items: [
+      { title: "All Parties", href: ROUTES.parties, icon: "Users" },
+      { title: "Add Party", href: ROUTES.newParty, icon: "UserPlus", adminOnly: true },
     ],
   },
   {

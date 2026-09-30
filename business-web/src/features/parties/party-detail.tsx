@@ -14,6 +14,7 @@ import {
   Phone,
   Plus,
   Power,
+  Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, customersApi, suppliersApi } from "@/lib/api";
@@ -37,7 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { INDIAN_STATES, ROUTES } from "@/lib/constants";
+import { DETAIL_ROUTES, INDIAN_STATES, ROUTES } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
 import { toFormValues } from "@/features/customers/party-rules";
 import { PartyForm } from "./party-form";
@@ -181,6 +182,15 @@ export function PartyDetail({ kind, id }: { kind: PartyKind; id: string }) {
         actions={
           <div className="flex items-center gap-2" data-print-hide>
             {!record.isActive ? <StatusBadge status="INACTIVE" /> : null}
+            {record.partyId ? (
+              // Both sides of the business - as a customer and as a supplier - on one page.
+              <Button asChild variant="outline" size="sm" className="gap-1.5">
+                <Link href={DETAIL_ROUTES.party(record.partyId)} aria-label="Party profile">
+                  <Users className="h-4 w-4" />
+                  <span className="hidden sm:inline">Party profile</span>
+                </Link>
+              </Button>
+            ) : null}
             <Can do="parties.manage">
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditOpen(true)} aria-label="Edit">
                 <Pencil className="h-4 w-4" />
