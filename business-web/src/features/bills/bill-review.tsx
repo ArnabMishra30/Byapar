@@ -472,7 +472,9 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
         {/* The bill as photographed */}
-        <div className="min-w-0 space-y-2 lg:sticky lg:top-4 lg:self-start">
+        {/* Pinned below the 4rem sticky header and capped to the viewport, so the
+            bill stays readable beside the item list while the form scrolls. */}
+        <div className="min-w-0 space-y-2 lg:sticky lg:top-20 lg:flex lg:max-h-[calc(100vh-6rem)] lg:flex-col lg:self-start">
           {/* On a phone the form is what matters, so the photo folds away
               behind a button; on a wide screen it sits beside the form. */}
           <button
@@ -495,13 +497,14 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
           </Label>
           <div
             className={cn(
-              "overflow-hidden rounded-lg border bg-muted/30 lg:block",
+              // A tall photo scrolls inside its own box instead of with the page.
+              "overflow-hidden rounded-lg border bg-muted/30 lg:block lg:min-h-0 lg:flex-1 lg:overflow-y-auto",
               previewOpen ? "block" : "hidden",
             )}
           >
             {imageUrl ? (
               bill.file.mimeType === "application/pdf" ? (
-                <object data={imageUrl} type="application/pdf" className="h-[70vh] w-full lg:h-[600px]">
+                <object data={imageUrl} type="application/pdf" className="h-[70vh] w-full lg:h-[calc(100vh-9rem)]">
                   <div className="flex flex-col items-center gap-2 p-8 text-center">
                     <FileText className="h-8 w-8 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">{bill.file.name}</p>
