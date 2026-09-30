@@ -89,10 +89,12 @@
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
-  /* A shop counter is often a phone. Nothing may push the page sideways. */
+  /* A shop counter is often a phone. Nothing may push the page sideways.
+     `clip`, not `hidden`: hidden on html+body makes body a scroll container,
+     which breaks the sticky sidebar (it sticks to body, not the window). */
   html,
   body {
-    @apply overflow-x-hidden;
+    overflow-x: clip;
   }
 }
 
