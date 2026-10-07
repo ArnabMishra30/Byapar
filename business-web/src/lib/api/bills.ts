@@ -114,6 +114,8 @@ export interface NewProductInput {
   name: string;
   unit?: string | null;
   price?: string | null;
+  /** The rack chosen for the line; becomes the new product's usual spot. */
+  storageLocationId?: string | null;
 }
 
 export interface Bill {

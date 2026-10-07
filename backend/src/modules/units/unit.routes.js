@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as unitController from './unit.controller.js';
 import { listUnitsQuerySchema, createUnitSchema, updateUnitSchema } from './unit.validation.js';
 import { validate } from '../../middlewares/validate.js';
@@ -14,18 +15,18 @@ unitRoutes.use(requireAuth);
 unitRoutes.get('/', validate({ query: listUnitsQuerySchema }), unitController.list);
 unitRoutes.get('/:id', validate({ params: idParamSchema }), unitController.get);
 
-unitRoutes.post('/', requireRole('ADMIN'), validate({ body: createUnitSchema }), unitController.create);
+unitRoutes.post('/', requireShopPermission('PRODUCTS_MANAGE'), validate({ body: createUnitSchema }), unitController.create);
 
 unitRoutes.patch(
   '/:id',
-  requireRole('ADMIN'),
+  requireShopPermission('PRODUCTS_MANAGE'),
   validate({ params: idParamSchema, body: updateUnitSchema }),
   unitController.update,
 );
 
 unitRoutes.patch(
   '/:id/status',
-  requireRole('ADMIN'),
+  requireShopPermission('PRODUCTS_MANAGE'),
   validate({ params: idParamSchema, body: statusSchema }),
   unitController.updateStatus,
 );

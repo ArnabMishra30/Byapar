@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, Loader2, Search } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { customersApi, suppliersApi, productsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth/auth-context";
+import { QuickAddParty } from "./quick-add-party";
 
 /**
  * Picking a customer, supplier or product.
@@ -29,7 +31,7 @@ interface Option {
   sublabel?: string;
 }
 
-const LOADERS: Record<EntityKind, (search: string) => Promise<Option[]>> = {
+const LOADERS: Record<EntityKind, (search: string, productKind?: "ITEM" | "ALL") => Promise<Option[]>> = {
   customer: async (search) => {
     const { items } = await customersApi.list({ limit: 20, search: search || undefined, isActive: "true" });
     return items.map((c) => ({ id: c.id, label: c.name, sublabel: c.phone ?? undefined }));
@@ -38,9 +40,16 @@ const LOADERS: Record<EntityKind, (search: string) => Promise<Option[]>> = {
     const { items } = await suppliersApi.list({ limit: 20, search: search || undefined, isActive: "true" });
     return items.map((s) => ({ id: s.id, label: s.name, sublabel: s.phone ?? undefined }));
   },
-  product: async (search) => {
-    const { items } = await productsApi.list({ limit: 20, search: search || undefined, isActive: "true" });
-    return items.map((p) => ({ id: p.id, label: p.name, sublabel: p.sku }));
+  product: async (search, productKind = "ALL") => {
+    const { items } = await productsApi.list({ limit: 20, search: search || undefined, isActive: "true", kind: productKind });
+    return items.map((p) => ({
+      id: p.id,
+      label: p.name,
+      // A combo says so, and how many its contents' stock allows.
+      sublabel: p.isCombo
+        ? `Combo · can make ${p.availability?.total ?? 0}`
+        : p.sku ?? undefined,
+    }));
   },
 };
 
@@ -58,6 +67,7 @@ export function EntitySelect({
   placeholder,
   disabled,
   invalid,
+  productKind = "ALL",
 }: {
   kind: EntityKind;
   value?: string | null;
@@ -67,9 +77,15 @@ export function EntitySelect({
   placeholder?: string;
   disabled?: boolean;
   invalid?: boolean;
+  /** For products: ITEM leaves combos out (purchases, stock, combo contents). */
+  productKind?: "ITEM" | "ALL";
 }) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
+  // Adding a customer / supplier right here, without leaving the bill.
+  const [adding, setAdding] = React.useState(false);
+  const { can } = useAuth();
+  const canAdd = kind === "customer" ? can("customers.create") : kind === "supplier" && can("parties.manage");
 
   // Debounced so typing does not fire a request per keystroke.
   const [debounced, setDebounced] = React.useState("");
@@ -79,8 +95,8 @@ export function EntitySelect({
   }, [search]);
 
   const { data: options, isLoading } = useQuery({
-    queryKey: [kind, "options", debounced],
-    queryFn: () => LOADERS[kind](debounced),
+    queryKey: [kind, "options", debounced, productKind],
+    queryFn: () => LOADERS[kind](debounced, productKind),
     enabled: open,
   });
 
@@ -103,11 +119,43 @@ export function EntitySelect({
         <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
       </Button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setAdding(false);
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{TITLES[kind]}</DialogTitle>
+            <DialogTitle>{adding ? `Add new ${kind}` : TITLES[kind]}</DialogTitle>
           </DialogHeader>
+
+          {adding && kind !== "product" ? (
+            <QuickAddParty
+              kind={kind}
+              initialName={search.trim()}
+              onCancel={() => setAdding(false)}
+              onCreated={(id, label) => {
+                onChange(id, label);
+                setAdding(false);
+                setOpen(false);
+                setSearch("");
+              }}
+            />
+          ) : (
+          <>
+          {canAdd ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-[44px] w-full justify-start gap-2 border-dashed text-primary"
+              onClick={() => setAdding(true)}
+            >
+              <Plus className="h-4 w-4" />
+              {search.trim() ? `Add "${search.trim()}" as a new ${kind}` : `Add new ${kind}`}
+            </Button>
+          ) : null}
 
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -157,6 +205,8 @@ export function EntitySelect({
               </ul>
             )}
           </div>
+          </>
+          )}
         </DialogContent>
       </Dialog>
     </>

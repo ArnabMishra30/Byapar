@@ -6,6 +6,14 @@ import { MobileNav } from "./mobile-nav";
 import { CommandMenu } from "./command-menu";
 import { useAuth } from "@/lib/auth/auth-context";
 import { roleLabel } from "@/lib/auth/roles";
+
+/** What the owner called this staff member's job, shown instead of "Staff". */
+const SHOP_ROLE_LABEL: Record<string, string> = {
+  CASHIER: "Cashier",
+  STOREKEEPER: "Store keeper",
+  ACCOUNTANT: "Accountant",
+  MANAGER: "Manager",
+};
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,7 +48,7 @@ export function Header() {
       <CommandMenu />
 
       <Badge variant={isAdmin ? "default" : "secondary"} className="hidden sm:inline-flex">
-        {roleLabel(user?.role)}
+        {SHOP_ROLE_LABEL[user?.shopRole ?? ""] ?? roleLabel(user?.role)}
       </Badge>
 
       <DropdownMenu>

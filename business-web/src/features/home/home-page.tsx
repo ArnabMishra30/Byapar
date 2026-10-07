@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MyDayHome } from "./my-day-home";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
@@ -69,7 +70,13 @@ function Section({
   );
 }
 
+/** The shop's dashboard, or - for someone who may not see shop totals - their own day. */
 export function HomePage() {
+  const { can } = useAuth();
+  return can("reports.read") ? <ShopDashboard /> : <MyDayHome />;
+}
+
+function ShopDashboard() {
   const { user, company, isGstEnabled, can } = useAuth();
 
   // The greeting depends on the viewer's clock, so it is worked out after the

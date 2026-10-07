@@ -1,4 +1,5 @@
 import { ApiError } from '../../utils/api-error.js';
+import { hasShopPermission } from '../users/shop-permissions.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
 import { logger } from '../../utils/logger.js';
 import * as billRepository from './bill.repository.js';
@@ -302,6 +303,14 @@ export async function confirm(
 
   const isPurchase = bill.direction === 'IN';
   const service = isPurchase ? purchaseService : salesService;
+
+  // Saving a scanned bill records a real purchase or sale, so it also needs the
+  // permission the typed version would.
+  if (!hasShopPermission(currentUser, isPurchase ? 'PURCHASES_MANAGE' : 'SALES_POST')) {
+    throw ApiError.forbidden(
+      isPurchase ? 'You are not allowed to record purchases.' : 'You are not allowed to complete sales.',
+    );
+  }
   const sourceType = isPurchase ? 'PURCHASE' : 'SALES_INVOICE';
 
   // THE SAME SCHEMA THE ORDINARY FORM USES, chosen by the bill's own direction.

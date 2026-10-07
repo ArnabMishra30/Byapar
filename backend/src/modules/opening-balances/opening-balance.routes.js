@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as openingBalanceController from './opening-balance.controller.js';
 import { initializeOpeningBalancesSchema } from './opening-balance.validation.js';
 import { validate } from '../../middlewares/validate.js';
@@ -22,9 +23,9 @@ export const openingBalanceRoutes = Router();
 
 openingBalanceRoutes.use(requireAuth);
 
-openingBalanceRoutes.get('/', openingBalanceController.getStatus);
+openingBalanceRoutes.get('/', requireShopPermission('REPORTS_VIEW'), openingBalanceController.getStatus);
 
-openingBalanceRoutes.get('/details', openingBalanceController.getDetails);
+openingBalanceRoutes.get('/details', requireShopPermission('REPORTS_VIEW'), openingBalanceController.getDetails);
 
 openingBalanceRoutes.post(
   '/',

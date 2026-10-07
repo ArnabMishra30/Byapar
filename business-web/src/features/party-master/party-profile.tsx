@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useAuth } from "@/lib/auth/auth-context";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -40,6 +41,7 @@ import { DETAIL_ROUTES, INDIAN_STATES, ROUTES } from "@/lib/constants";
 import { HistoryTab, PaymentsTab, StatementTab } from "@/features/parties/party-tabs";
 import { PartyMasterForm } from "./party-master-form";
 import { RelationshipBadge } from "./relationship-badge";
+import { ShareButton } from "@/features/share/share-dialog";
 import { EMPTY_PARTY_FORM, toUpdatePayload, type PartyFormValues } from "./party-payload";
 
 type Side = "customer" | "supplier";
@@ -76,6 +78,7 @@ function toFormValues(party: PartyDetail): PartyFormValues {
  */
 export function PartyProfile({ id }: { id: string }) {
   const queryClient = useQueryClient();
+  const { can } = useAuth();
   const [editOpen, setEditOpen] = React.useState(false);
   const [statusOpen, setStatusOpen] = React.useState(false);
   const [linkSide, setLinkSide] = React.useState<Side | null>(null);
@@ -146,27 +149,30 @@ export function PartyProfile({ id }: { id: string }) {
   const party = query.data;
   const stateName = INDIAN_STATES.find((state) => state.code === party.stateCode)?.name;
 
+  // Every tab reads shop-wide history, so each is shown only to someone allowed
+  // to open it; the server refuses the rest anyway.
+  const seeReports = can("reports.read");
   const tabs: { value: string; label: string; content: React.ReactNode }[] = [];
-  if (party.customerId) {
+  if (seeReports && party.customerId) {
     tabs.push({ value: "sales", label: "Sales", content: <HistoryTab kind="customer" id={party.customerId} /> });
   }
-  if (party.supplierId) {
+  if (seeReports && party.supplierId) {
     tabs.push({ value: "purchases", label: "Purchases", content: <HistoryTab kind="supplier" id={party.supplierId} /> });
   }
-  if (party.customerId) {
+  if (seeReports && party.customerId) {
     tabs.push({ value: "received", label: "Money received", content: <PaymentsTab kind="customer" id={party.customerId} /> });
   }
-  if (party.supplierId) {
+  if (seeReports && party.supplierId) {
     tabs.push({ value: "paid", label: "Money paid", content: <PaymentsTab kind="supplier" id={party.supplierId} /> });
   }
-  if (party.customerId) {
+  if (seeReports && party.customerId) {
     tabs.push({
       value: "customer-statement",
       label: party.supplierId ? "Customer statement" : "Statement",
       content: <StatementTab kind="customer" id={party.customerId} name={party.name} />,
     });
   }
-  if (party.supplierId) {
+  if (seeReports && party.supplierId) {
     tabs.push({
       value: "supplier-statement",
       label: party.customerId ? "Supplier statement" : "Statement",
@@ -398,6 +404,31 @@ function SideCard({
   }
 
   const balance = isCustomer ? party.customer!.receivable : party.supplier!.payable;
+  // The server sends no balance to someone not allowed to see it.
+  if (balance == null) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {isCustomer ? "They buy from you." : "You buy from them."} Balances are visible to the owner.
+          </p>
+          {isCustomer ? (
+            <Can do="sales.draft">
+              <Button asChild className="min-h-[44px] w-full gap-1.5">
+                <Link href={`${ROUTES.newSale}?customerId=${roleId}`}>
+                  <Plus className="h-4 w-4" />
+                  New sale
+                </Link>
+              </Button>
+            </Can>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  }
   const isAdvance = Number(balance) < 0;
   const label = isCustomer
     ? isAdvance
@@ -411,13 +442,15 @@ function SideCard({
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-        <Link
-          href={isCustomer ? DETAIL_ROUTES.customer(roleId) : DETAIL_ROUTES.supplier(roleId)}
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
-          data-print-hide
-        >
-          Full account <ExternalLink className="h-3 w-3" />
-        </Link>
+        <Can do="reports.read">
+          <Link
+            href={isCustomer ? DETAIL_ROUTES.customer(roleId) : DETAIL_ROUTES.supplier(roleId)}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+            data-print-hide
+          >
+            Full account <ExternalLink className="h-3 w-3" />
+          </Link>
+        </Can>
       </CardHeader>
       <CardContent className="space-y-3">
         <div>
@@ -446,6 +479,15 @@ function SideCard({
           {data.creditDays != null ? <span>{data.creditDays} days to pay</span> : null}
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-print-hide>
+          <div className="sm:col-span-2">
+            <ShareButton
+              target={
+                isCustomer
+                  ? { kind: "CUSTOMER_ACCOUNT", customerId: roleId, name: party.name }
+                  : { kind: "SUPPLIER_ACCOUNT", supplierId: roleId, name: party.name }
+              }
+            />
+          </div>
           <Can do={isCustomer ? "sales.draft" : "purchases.draft"}>
             <Button asChild className="min-h-[44px] gap-1.5">
               <Link href={isCustomer ? `${ROUTES.newSale}?customerId=${roleId}` : `${ROUTES.newPurchase}?supplierId=${roleId}`}>

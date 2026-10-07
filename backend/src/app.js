@@ -1,4 +1,6 @@
 import express from 'express';
+import { moneyAccountRoutes } from './modules/money-accounts/money-account.routes.js';
+import { offerRoutes } from './modules/offers/offer.routes.js';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -19,6 +21,7 @@ import { productRoutes } from './modules/products/product.routes.js';
 import { supplierRoutes } from './modules/suppliers/supplier.routes.js';
 import { customerRoutes } from './modules/customers/customer.routes.js';
 import { partyRoutes } from './modules/parties/party.routes.js';
+import { storageLocationRoutes } from './modules/storage-locations/storage-location.routes.js';
 import { inventoryRoutes } from './modules/inventory/inventory.routes.js';
 import { purchaseRoutes } from './modules/purchases/purchase.routes.js';
 import { purchaseReturnRoutes } from './modules/purchase-returns/purchase-return.routes.js';
@@ -46,6 +49,7 @@ import {
   dashboardRoutes,
   reportRoutes,
   creditRoutes,
+  myDayRoutes,
 } from './modules/reports/reports.routes.js';
 import {
   creditCollectionRoutes,
@@ -63,6 +67,7 @@ import {
 } from './modules/platform/platform.routes.js';
 import { subscriptionStatusRoutes } from './modules/platform/subscription-status.routes.js';
 import { publicRoutes } from './modules/platform/public.routes.js';
+import { shareLinkRoutes, publicShareRoutes } from './modules/share-links/share-link.routes.js';
 import { billRoutes } from './modules/bills/bill.routes.js';
 
 export const app = express();
@@ -137,7 +142,13 @@ app.use('/api/v1/categories', categoryRoutes);
 app.use('/api/v1/units', unitRoutes);
 app.use('/api/v1/taxes', taxRoutes);
 app.use('/api/v1/warehouses', warehouseRoutes);
+// Racks, shelves, drawers, fridges inside a warehouse. Tags only; no quantities.
+app.use('/api/v1/storage-locations', storageLocationRoutes);
 app.use('/api/v1/products', productRoutes);
+// Buy X get Y free. Applied by the server when a sale is saved.
+app.use('/api/v1/offers', offerRoutes);
+// The shop's own cash / bank / wallet accounts, and transfers between them.
+app.use('/api/v1/money-accounts', moneyAccountRoutes);
 app.use('/api/v1/suppliers', supplierRoutes);
 app.use('/api/v1/customers', customerRoutes);
 // A party is the person behind a customer and/or a supplier. See modules/parties.
@@ -184,6 +195,8 @@ app.use('/api/v1/tax', gstRoutes);
 // The universal business layer: the dashboard, the reports and the credit book.
 // Read-only, and none of it requires GST to be configured.
 app.use('/api/v1/dashboard', dashboardRoutes);
+// A biller's own day: their sales and money taken. Never anyone else's.
+app.use('/api/v1/my-day', myDayRoutes);
 app.use('/api/v1/reports', reportRoutes);
 app.use('/api/v1/credit', creditRoutes);
 
@@ -206,7 +219,10 @@ app.use('/api/v1/accounting-periods', periodRoutes);
 // The SaaS layer. These belong to the platform operator, not to a shop: every
 // route is permission-gated and none of them reads a shop's companyId.
 // Unauthenticated: the price list the marketing site shows. Nothing else.
+// A customer opening a shared bill / log book. No login; the token is the key.
+app.use('/api/v1/public/share', publicShareRoutes);
 app.use('/api/v1/public', publicRoutes);
+app.use('/api/v1/share-links', shareLinkRoutes);
 
 app.use('/api/v1/plans', planRoutes);
 app.use('/api/v1/subscriptions', subscriptionRoutes);

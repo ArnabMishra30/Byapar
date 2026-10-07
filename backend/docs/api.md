@@ -944,6 +944,64 @@ side if it has one. The same applies to `/suppliers`.
 
 ---
 
+## Share links — `/api/v1/share-links` and `/api/v1/public/share`
+
+A shop sends a customer or supplier a link to their bill and/or log book. The
+link opens a read-only page with **no login** (`/s/<token>` in business-web). It
+works until the shop stops sharing it.
+
+Owner side (signed in; create/stop = ADMIN, list = ADMIN + STAFF):
+
+| Method | Path | What it does |
+|---|---|---|
+| POST | `/share-links` | `{ kind: "INVOICE", salesInvoiceId, includeAccount? }`, `{ kind: "CUSTOMER_ACCOUNT", customerId }` or `{ kind: "SUPPLIER_ACCOUNT", supplierId }`. 201 new, 200 when an active link for the same thing already exists (same token). A draft invoice is refused (409 `SALE_NOT_POSTED`). |
+| GET | `/share-links` | `?salesInvoiceId=&customerId=&supplierId=`. Each link has `token`, `isActive`, `viewCount`, `firstViewedAt`, `lastViewedAt` (seen-tracking). |
+| POST | `/share-links/:id/revoke` | Stop sharing. The link stops opening immediately. |
+
+Recipient side (no auth; 60 requests/min per IP; `Cache-Control: no-store`,
+`X-Robots-Tag: noindex`):
+
+| Method | Path | What it returns |
+|---|---|---|
+| GET | `/public/share/:token` | `{ kind, shop: { name, legalName, phone, email, city, gstin }, invoice, account, generatedAt }`. `invoice`: number, dates, status, customer name, items (name, unit, HSN, qty, price, discount, tax, total), totals, `paid`, `returned`, `due`. `account`: `side`, `partyName`, `lines` (date, label, document number, `invoiceId` for a customer's own invoices, debit, credit, running balance), `closingBalance`. Each view increments the link's counter. |
+| GET | `/public/share/:token/invoices/:id` | One invoice opened from inside a customer log book. Only that customer's posted/cancelled invoices, only when the link shows their account (or it is the link's own invoice). |
+
+A stopped link, an unknown token and an invoice outside the link all answer
+404 `SHARE_LINK_NOT_FOUND` with the same message. A malformed token is 400.
+Never included: cost, margin, stock, warehouse, staff names, company id.
+
+---
+
+## Storage locations — `/api/v1/storage-locations`
+
+Racks, shelves, drawers, fridges inside a warehouse. Each shop defines its own;
+the owner sets them up and staff pick from them. **A location is a tag only**:
+stock quantity and average cost stay per product per warehouse.
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/storage-locations` | `?warehouseId=&type=&search=&isActive=`, paging. Each has `warehouse`, `type`, `code`, `productCount`. ADMIN + STAFF. |
+| GET | `/storage-locations/:id` | One location. Another company's is 404 `LOCATION_NOT_FOUND`. |
+| POST | `/storage-locations` | `{ warehouseId, name, type?, code?, notes?, sortOrder? }`. ADMIN. `type` is `RACK\|SHELF\|DRAWER\|FRIDGE\|FREEZER\|COUNTER\|BIN\|BOX\|OTHER` (default RACK). Name unique per warehouse (409 `LOCATION_NAME_TAKEN`). |
+| POST | `/storage-locations/starter` | `{ warehouseId }`. Adds Rack 1, Rack 2, Counter, Drawer 1, Fridge, Back store. Idempotent. ADMIN. |
+| PATCH | `/storage-locations/:id` | Rename / change type, code, notes, order. The warehouse cannot change. ADMIN. |
+| PATCH | `/storage-locations/:id/status` | `{ isActive }`. Hides it from pickers; past movements keep their tag. ADMIN. |
+
+Products accept and return `storageLocationId` / `storageLocation` (where the
+product is usually kept). `POST /inventory/opening-stock` and
+`POST /inventory/adjustments` accept an optional `storageLocationId`, which must
+be in the same warehouse (400 otherwise). When none is sent, the movement is
+tagged with the product's usual location if that location is in the movement's
+warehouse. Purchase and sale lines accept an optional `items[].storageLocationId`
+(same warehouse; checked at draft time) which tags that line's stock movement;
+without it the product's usual spot applies. Returns tag by the usual spot. On
+`POST /bills/:id/confirm` the same per-item field works, and
+`newProducts[].storageLocationId` also becomes the new product's usual spot. Every movement returns
+`storageLocation` (or null), and `GET /inventory/movements` filters by
+`?storageLocationId=`.
+
+---
+
 ## Parties — `/api/v1/parties`
 
 A party is the real person or business the shop deals with:

@@ -1,6 +1,7 @@
 import { ApiError } from '../../utils/api-error.js';
+import { assertMoneyAccount } from '../money-accounts/money-account.service.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
-import { round, toMoneyString, isGreaterThan } from '../../utils/money.js';
+import { round, toDecimal, toMoneyString, isGreaterThan } from '../../utils/money.js';
 import { withRetryableTransaction } from '../../config/transaction.js';
 import * as expenseRepository from './expense.repository.js';
 import * as accountRepository from '../accounting/account.repository.js';
@@ -54,6 +55,12 @@ export function toPublicExpense(expense) {
     },
 
     paymentMode: expense.paymentMode,
+    // A split payment: how much came out of which account.
+    paymentParts: (expense.paymentParts ?? []).map((part) => ({
+      accountId: part.accountId,
+      name: part.accountNameSnapshot,
+      amount: toMoneyString(part.amount, 2),
+    })),
     paidFrom: {
       accountId: expense.paymentAccount.id,
       code: expense.paymentAccount.code,
@@ -209,7 +216,31 @@ async function loadAndValidateReferences(companyId, input) {
     throw ApiError.business(422, 'INVALID_EXPENSE_AMOUNT', 'An expense amount must be more than zero');
   }
 
-  return { category, paymentAccount, supplier };
+  // A split payment: every part from one of the shop's money accounts, each
+  // account once, and together exactly the amount.
+  let parts = [];
+  if (input.paymentParts && input.paymentParts.length > 0) {
+    const seen = new Set();
+    let total = toDecimal(0);
+    for (const part of input.paymentParts) {
+      if (seen.has(part.accountId)) {
+        throw ApiError.badRequest('Each account once', [{ field: 'body.paymentParts', message: 'An account appears twice' }]);
+      }
+      seen.add(part.accountId);
+      const account = await assertMoneyAccount(companyId, part.accountId);
+      parts.push({ accountId: account.id, accountNameSnapshot: account.name, amount: round(part.amount, MONEY_DP) });
+      total = total.plus(part.amount);
+    }
+    if (!total.toDecimalPlaces(2).equals(toDecimal(input.amount).toDecimalPlaces(2))) {
+      throw ApiError.business(
+        422,
+        'SPLIT_DOES_NOT_ADD_UP',
+        `The parts add up to ${total.toFixed(2)}, but the expense is ${toDecimal(input.amount).toFixed(2)}`,
+      );
+    }
+  }
+
+  return { category, paymentAccount: parts.length ? await assertMoneyAccount(companyId, parts[0].accountId) : paymentAccount, supplier, parts };
 }
 
 function assertIsDraft(expense) {
@@ -230,7 +261,7 @@ function assertIsDraft(expense) {
 }
 
 /** The row fields an expense stores, shared by create and edit. */
-function toRow(input, { category, paymentAccount, supplier }) {
+function toRow(input, { category, paymentAccount, supplier, parts }) {
   return {
     expenseDate: input.expenseDate,
     expenseAccountId: category.id,
@@ -239,12 +270,23 @@ function toRow(input, { category, paymentAccount, supplier }) {
     amount: round(input.amount, MONEY_DP),
     paymentMode: input.paymentMode,
     paymentAccountId: paymentAccount.id,
-    paymentAccountNameSnapshot: paymentAccount.name,
+    // A split shows every account it came from.
+    paymentAccountNameSnapshot: parts?.length
+      ? parts.map((part) => part.accountNameSnapshot).join(' + ')
+      : paymentAccount.name,
     supplierId: supplier ? supplier.id : null,
     supplierNameSnapshot: supplier ? supplier.name : null,
     referenceNumber: input.referenceNumber ?? null,
     notes: input.notes ?? null,
   };
+}
+
+/** A split payment's parts, replacing any the draft had. */
+async function writeParts(tx, companyId, expenseId, parts = []) {
+  await tx.expensePaymentPart.deleteMany({ where: { expenseId } });
+  if (parts.length > 0) {
+    await tx.expensePaymentPart.createMany({ data: parts.map((part) => ({ ...part, companyId, expenseId })) });
+  }
 }
 
 // --- writes ----------------------------------------------------------------
@@ -262,13 +304,15 @@ export async function createDraft(currentUser, input) {
       date: input.expenseDate,
     });
 
-    return expenseRepository.createDraft(tx, {
+    const created = await expenseRepository.createDraft(tx, {
       companyId,
       expenseNumber,
       status: 'DRAFT',
       createdById: currentUser.id,
       ...toRow(input, references),
     });
+    await writeParts(tx, companyId, created.id, references.parts);
+    return expenseRepository.findByIdAndCompany(created.id, companyId, tx);
   });
 
   return toPublicExpense(expense);
@@ -284,9 +328,12 @@ export async function updateDraft(currentUser, id, input) {
 
   const references = await loadAndValidateReferences(companyId, input);
 
-  const expense = await withRetryableTransaction(async (tx) =>
-    expenseRepository.updateDraft(tx, { id, companyId, data: toRow(input, references) }),
-  );
+  const expense = await withRetryableTransaction(async (tx) => {
+    const updated = await expenseRepository.updateDraft(tx, { id, companyId, data: toRow(input, references) });
+    if (!updated) return null;
+    await writeParts(tx, companyId, id, references.parts);
+    return expenseRepository.findByIdAndCompany(id, companyId, tx);
+  });
 
   // updateDraft only matches rows still in DRAFT, so null means it was posted or
   // cancelled between our read and our write.
@@ -326,6 +373,7 @@ export async function post(currentUser, id) {
     // draft was written.
     await loadCategoryAccount(companyId, locked.expenseAccountId);
     await loadPaymentAccount(companyId, { paymentAccountId: locked.paymentAccountId });
+    for (const part of locked.paymentParts ?? []) await assertMoneyAccount(companyId, part.accountId, tx);
 
     // The general ledger entry, in this same transaction.
     await glPostingService.recordExpensePosted(tx, currentUser, locked);

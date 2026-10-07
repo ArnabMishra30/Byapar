@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as salesReturnController from './sales-return.controller.js';
 import {
   createSalesReturnSchema,
@@ -35,26 +36,28 @@ salesReturnRoutes.get('/:id', validate({ params: idParamSchema }), salesReturnCo
 
 salesReturnRoutes.post(
   '/',
+  requireShopPermission('SALES_CANCEL', 'LEGACY_DRAFTS'),
   validate({ body: createSalesReturnSchema }),
   salesReturnController.create,
 );
 
 salesReturnRoutes.patch(
   '/:id',
+  requireShopPermission('SALES_CANCEL', 'LEGACY_DRAFTS'),
   validate({ params: idParamSchema, body: updateSalesReturnSchema }),
   salesReturnController.update,
 );
 
 salesReturnRoutes.post(
   '/:id/post',
-  requireRole('ADMIN'),
+  requireShopPermission('SALES_CANCEL'),
   validate({ params: idParamSchema }),
   salesReturnController.post,
 );
 
 salesReturnRoutes.post(
   '/:id/cancel',
-  requireRole('ADMIN'),
+  requireShopPermission('SALES_CANCEL'),
   validate({ params: idParamSchema }),
   salesReturnController.cancel,
 );

@@ -36,6 +36,8 @@ const paymentBodySchema = z
     paymentDate: businessDateSchema,
     amount: positiveMoneySchema,
     paymentMethod: paymentMethodSchema,
+    /** Which of the shop's cash / bank / wallet accounts. Optional: by method otherwise. */
+    moneyAccountId: z.string().uuid('Invalid account').nullable().optional(),
     referenceNumber: z
       .string()
       .trim()
@@ -68,6 +70,7 @@ export const listCustomerPaymentsQuerySchema = paginationQuerySchema.extend({
   customerId: optionalIdQuerySchema('customerId'),
   status: z.enum(['DRAFT', 'POSTED', 'CANCELLED']).optional(),
   paymentMethod: paymentMethodSchema.optional(),
+  moneyAccountId: z.string().uuid('Invalid account').nullable().optional(),
   fromDate: businessDateSchema.optional(),
   toDate: businessDateSchema.optional(),
 });

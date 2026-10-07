@@ -42,6 +42,7 @@ import { DETAIL_ROUTES, INDIAN_STATES, ROUTES } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
 import { toFormValues } from "@/features/customers/party-rules";
 import { PartyForm } from "./party-form";
+import { ShareButton } from "@/features/share/share-dialog";
 import { useCreditRows, type PartyKind } from "./party-credit";
 import { CreditTab, HistoryTab, PaymentsTab, StatementTab } from "./party-tabs";
 
@@ -191,6 +192,14 @@ export function PartyDetail({ kind, id }: { kind: PartyKind; id: string }) {
                 </Link>
               </Button>
             ) : null}
+            <ShareButton
+              size="sm"
+              target={
+                kind === "customer"
+                  ? { kind: "CUSTOMER_ACCOUNT", customerId: id, name: record.name }
+                  : { kind: "SUPPLIER_ACCOUNT", supplierId: id, name: record.name }
+              }
+            />
             <Can do="parties.manage">
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditOpen(true)} aria-label="Edit">
                 <Pencil className="h-4 w-4" />

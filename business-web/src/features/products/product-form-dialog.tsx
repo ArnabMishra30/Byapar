@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { ComboContentsEditor, contentsError, emptyContent, toComponents, type ComboContentRow } from "./combo-builder";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { stripBodyPrefix } from "@/lib/utils";
 import { useWarehouses } from "@/features/stock/movement-list";
+import { LocationSelect } from "@/features/stock/location-select";
 import { invalidateStock } from "@/features/stock/opening-stock-dialog";
 import type { ProductRecord } from "@/features/stock/types";
 
@@ -32,6 +34,7 @@ interface FormState {
   categoryId: string;
   unitId: string;
   taxId: string;
+  storageLocationId: string;
   purchasePrice: string;
   sellingPrice: string;
   reorderLevel: string;
@@ -49,6 +52,7 @@ const EMPTY: FormState = {
   categoryId: "",
   unitId: "",
   taxId: "",
+  storageLocationId: "",
   purchasePrice: "",
   sellingPrice: "",
   reorderLevel: "",
@@ -70,6 +74,7 @@ function fromProduct(p: ProductRecord): FormState {
     categoryId: p.category?.id ?? p.categoryId ?? "",
     unitId: p.unit?.id ?? p.unitId ?? "",
     taxId: p.tax?.id ?? p.taxId ?? "",
+    storageLocationId: p.storageLocation?.id ?? p.storageLocationId ?? "",
     purchasePrice: p.purchasePrice ?? "",
     sellingPrice: p.sellingPrice ?? "",
     reorderLevel: p.reorderLevel ?? "",
@@ -101,6 +106,9 @@ export function ProductFormDialog({
   const [form, setForm] = React.useState<FormState>(EMPTY);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const warehouses = useWarehouses();
+  // A combo: sold as one item, made of other items that each leave stock.
+  const [isCombo, setIsCombo] = React.useState(false);
+  const [comboRows, setComboRows] = React.useState<ComboContentRow[]>([emptyContent()]);
 
   const categories = useQuery({
     queryKey: ["categories", "options"],
@@ -122,6 +130,12 @@ export function ProductFormDialog({
     if (!open) return;
     setForm(product ? fromProduct(product) : EMPTY);
     setErrors({});
+    setIsCombo(Boolean(product?.isCombo));
+    setComboRows(
+      product?.isCombo && product.components?.length
+        ? product.components.map((c) => ({ ...emptyContent(), productId: c.productId, label: c.name, quantity: c.quantity }))
+        : [emptyContent()],
+    );
   }, [open, product]);
 
   React.useEffect(() => {
@@ -140,9 +154,13 @@ export function ProductFormDialog({
         sku: form.sku.trim() || null,
         barcode: form.barcode.trim() || null,
         description: form.description.trim() || null,
-        categoryId: form.categoryId,
-        unitId: form.unitId,
+        // A combo may leave these blank: the server files it under "Combos".
+        categoryId: form.categoryId || undefined,
+        unitId: form.unitId || undefined,
+        ...(isCombo ? { components: toComponents(comboRows) } : {}),
+        ...(isCombo && !isEdit ? { isCombo: true } : {}),
         taxId: form.taxId || null,
+        storageLocationId: form.storageLocationId || null,
         purchasePrice: form.purchasePrice.trim() || "0",
         sellingPrice: form.sellingPrice.trim() || "0",
         reorderLevel: form.reorderLevel.trim() || "0",
@@ -154,7 +172,7 @@ export function ProductFormDialog({
       ) as unknown as ProductRecord;
 
       let openingError: string | null = null;
-      if (!isEdit && form.openingQuantity.trim()) {
+      if (!isEdit && !isCombo && form.openingQuantity.trim()) {
         try {
           await inventoryApi.openingStock({
             productId: saved.id,
@@ -201,8 +219,12 @@ export function ProductFormDialog({
     e.preventDefault();
     const next: Record<string, string> = {};
     if (form.name.trim().length < 2) next.name = "Enter a name (at least 2 letters)";
-    if (!form.categoryId) next.categoryId = "Choose a category";
-    if (!form.unitId) next.unitId = "Choose a unit";
+    if (!isCombo && !form.categoryId) next.categoryId = "Choose a category";
+    if (!isCombo && !form.unitId) next.unitId = "Choose a unit";
+    if (isCombo) {
+      const problem = contentsError(comboRows);
+      if (problem) next.components = problem;
+    }
     if (form.barcode.trim() && form.barcode.trim().length < 4) next.barcode = "Barcode must be at least 4 characters";
     for (const key of ["purchasePrice", "sellingPrice"] as const) {
       if (form[key].trim() && !MONEY_RE.test(form[key].trim())) next[key] = "Enter a valid price";
@@ -301,9 +323,46 @@ export function ProductFormDialog({
                 </NativeSelect>
               </Field>
             </GstOnly>
+            <Field
+              label="Kept at"
+              htmlFor="p-location"
+              hint="The rack, shelf or fridge it usually sits in. Stock entries are tagged with it."
+              error={errors.storageLocationId}
+            >
+              <LocationSelect
+                id="p-location"
+                value={form.storageLocationId}
+                onChange={set("storageLocationId")}
+              />
+            </Field>
           </FormSection>
 
           <Separator />
+
+          {!isEdit ? (
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-primary"
+                checked={isCombo}
+                onChange={(e) => setIsCombo(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">This is a combo</span>
+                <span className="block text-xs text-muted-foreground">
+                  Sold as one item, made of items you already stock (e.g. Diwali Pack = Rice + Oil + Sugar). It has no
+                  stock of its own: each item inside comes out of stock when it is sold.
+                </span>
+              </span>
+            </label>
+          ) : null}
+
+          {isCombo ? (
+            <FormSection title="What goes in it" description="Category and unit can be left blank for a combo.">
+              <ComboContentsEditor rows={comboRows} onChange={setComboRows} />
+              {errors.components ? <p className="text-xs text-destructive">{errors.components}</p> : null}
+            </FormSection>
+          ) : null}
 
           <FormSection title="Prices and stock level">
             <div className="grid gap-4 sm:grid-cols-3">
@@ -351,7 +410,7 @@ export function ProductFormDialog({
             </Field>
           </FormSection>
 
-          {!isEdit ? (
+          {!isEdit && !isCombo ? (
             <>
               <Separator />
               <FormSection

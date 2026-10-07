@@ -1,4 +1,5 @@
 import { ApiError } from '../../utils/api-error.js';
+import { hasShopPermission } from '../users/shop-permissions.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
 import { toMoneyString, toDecimal } from '../../utils/money.js';
 import { withRetryableTransaction } from '../../config/transaction.js';
@@ -166,6 +167,18 @@ async function lockParty(tx, id, companyId) {
   return requireParty(tx, id, companyId);
 }
 
+/**
+ * Which balances this user may see. A cashier needs what a customer owes to
+ * take their money; what the shop owes a supplier is none of their business.
+ */
+function balanceVisibility(user) {
+  const has = (...keys) => keys.some((key) => hasShopPermission(user, key));
+  return {
+    seeReceivable: has('REPORTS_VIEW', 'MONEY_RECEIVE'),
+    seePayable: has('REPORTS_VIEW', 'MONEY_PAY', 'PURCHASES_MANAGE'),
+  };
+}
+
 // --- reads -------------------------------------------------------------------
 
 export async function list(currentUser, query) {
@@ -195,6 +208,7 @@ export async function list(currentUser, query) {
   const lastByCustomer = new Map(customerActivity.map((r) => [r.customerId, r._max.entryDate]));
   const lastBySupplier = new Map(supplierActivity.map((r) => [r.supplierId, r._max.entryDate]));
 
+  const { seeReceivable, seePayable } = balanceVisibility(currentUser);
   const parties = items.map((party) => {
     const customerId = party.customer?.id;
     const supplierId = party.supplier?.id;
@@ -204,8 +218,8 @@ export async function list(currentUser, query) {
     return toPublicParty(party, {
       // Null, not zero, for a side the party does not have: "not a customer"
       // and "owes nothing" are different things.
-      receivable: customerId ? money(receivables.get(customerId)) : null,
-      payable: supplierId ? money(payables.get(supplierId)) : null,
+      receivable: customerId && seeReceivable ? money(receivables.get(customerId)) : null,
+      payable: supplierId && seePayable ? money(payables.get(supplierId)) : null,
       lastTransactionDate: last ? toDateString(last) : null,
     });
   });
@@ -222,6 +236,7 @@ export async function getById(currentUser, id) {
   const party = await requireParty(undefined, id, companyId);
   const today = await businessToday(companyId);
 
+  const { seeReceivable, seePayable } = balanceVisibility(currentUser);
   const [receivable, customerOverdue, payable, supplierOverdue] = await Promise.all([
     party.customer ? creditRepository.customerLedgerBalance(companyId, party.customer.id) : null,
     party.customer ? partyRepository.overdueForCustomer(companyId, party.customer.id, today) : null,
@@ -235,17 +250,19 @@ export async function getById(currentUser, id) {
     customer: party.customer
       ? {
           ...toPublicTerms(party.customer),
-          receivable: money(receivable),
-          overdue: money(customerOverdue._sum.outstandingAmount),
-          overdueCount: customerOverdue._count._all,
+          // Null when this user may not see what customers owe.
+          receivable: seeReceivable ? money(receivable) : null,
+          overdue: seeReceivable ? money(customerOverdue._sum.outstandingAmount) : null,
+          overdueCount: seeReceivable ? customerOverdue._count._all : null,
         }
       : null,
     supplier: party.supplier
       ? {
           ...toPublicTerms(party.supplier),
-          payable: money(payable),
-          overdue: money(supplierOverdue._sum.outstandingAmount),
-          overdueCount: supplierOverdue._count._all,
+          // Null when this user may not see what the shop owes suppliers.
+          payable: seePayable ? money(payable) : null,
+          overdue: seePayable ? money(supplierOverdue._sum.outstandingAmount) : null,
+          overdueCount: seePayable ? supplierOverdue._count._all : null,
         }
       : null,
   });
@@ -318,8 +335,24 @@ function duplicateError(matches) {
   );
 }
 
+/**
+ * Someone with only CUSTOMERS_CREATE (a cashier) may add a CUSTOMER with
+ * contact details - nothing else: no supplier, and no credit limit, payment
+ * days or opening balance, which are the owner's decisions.
+ */
+function assertMayCreate(currentUser, { relationship, customer, supplier }) {
+  if (hasShopPermission(currentUser, 'PARTIES_MANAGE')) return;
+  if (relationship !== 'CUSTOMER') {
+    throw ApiError.forbidden('You can add customers only. Ask the owner to add a supplier.');
+  }
+  if ((customer && Object.keys(customer).length > 0) || supplier) {
+    throw ApiError.forbidden('Credit limit and payment terms are set by the owner.');
+  }
+}
+
 export async function create(currentUser, input) {
   const { companyId } = currentUser;
+  assertMayCreate(currentUser, input);
   const { relationship, customer: customerTerms, supplier: supplierTerms, allowDuplicate } = input;
   const fields = pick(input, PARTY_KEYS);
 
@@ -451,6 +484,12 @@ export async function setStatus(currentUser, id, isActive) {
  */
 export async function addRelationship(currentUser, id, relationship, terms = {}) {
   const { companyId } = currentUser;
+  // A cashier may make an existing supplier a customer too (so a regular is
+  // not entered twice), but nothing else.
+  assertMayCreate(currentUser, {
+    relationship,
+    customer: terms && Object.keys(terms).length > 0 ? terms : undefined,
+  });
   const role = ROLE[relationship];
 
   await withRetryableTransaction(async (tx) => {

@@ -27,6 +27,8 @@ import {
 } from "@/lib/api";
 import type { Payable, Receivable } from "@/types/api";
 import { buildConfirmPayload } from "./confirm-payload";
+import { LocationSelect } from "@/features/stock/location-select";
+import { ShareDialog } from "@/features/share/share-dialog";
 import { DIRECTION_LABEL } from "./bill-list";
 import { PageHeader } from "@/components/shared/page-header";
 import { ErrorState, LoadingState } from "@/components/shared/states";
@@ -222,6 +224,10 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
   const [warehouseId, setWarehouseId] = React.useState("");
   const [lineProductIds, setLineProductIds] = React.useState<string[]>([]);
   const [lineProductLabels, setLineProductLabels] = React.useState<string[]>([]);
+  // The rack / shelf per line. Blank = the product's usual spot.
+  const [lineLocationIds, setLineLocationIds] = React.useState<string[]>([]);
+  // After a sale bill is recorded: the invoice it became, to offer sharing it.
+  const [sharedInvoice, setSharedInvoice] = React.useState<{ id: string; number: string | null } | null>(null);
 
   // Whether to add what the bill names but the shop does not have yet. Ticked by
   // default, so the common case - a new supplier, a new item - is one tap, while
@@ -361,6 +367,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
   const removeLine = (index: number) => {
     setData((current) => ({ ...current, lines: current.lines.filter((_, i) => i !== index) }));
     setLineProductIds((current) => current.filter((_, i) => i !== index));
+    setLineLocationIds((current) => current.filter((_, i) => i !== index));
   };
 
   const saveMutation = useMutation({
@@ -379,6 +386,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
         partyId,
         warehouseId,
         lineProductIds,
+        lineLocationIds,
         createLine: data.lines.map((_, index) => shouldCreateLine(index)),
         createParty,
         linkParty,
@@ -403,6 +411,15 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
             result.paymentError,
           )}. Add it from Money ${isPurchase ? "Paid" : "Received"}.`,
         );
+      }
+      // A sale: offer to send the customer their bill straight away.
+      const invoiceId = result.bill.posted?.sourceId;
+      if (!isPurchase && invoiceId) {
+        setSharedInvoice({
+          id: invoiceId,
+          number: (result.document?.invoiceNumber as string | undefined) ?? null,
+        });
+        return;
       }
       onDone();
     },
@@ -462,6 +479,24 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
 
   return (
     <div className="space-y-6">
+      {sharedInvoice ? (
+        <ShareDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setSharedInvoice(null);
+              onDone();
+            }
+          }}
+          title="Sale recorded — share it with the customer?"
+          target={{
+            kind: "INVOICE",
+            salesInvoiceId: sharedInvoice.id,
+            invoiceNumber: sharedInvoice.number,
+            customerName: partyLabel ?? linkParty?.name ?? data.partyName ?? undefined,
+          }}
+        />
+      ) : null}
       <PageHeader
         title={isPurchase ? "Check this purchase bill" : "Check this sales bill"}
         description={`${DIRECTION_LABEL[bill.direction]}. Nothing is saved until you confirm — correct anything that was misread.`}
@@ -831,6 +866,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                     <Field label="Your product" required>
                       <EntitySelect
                         kind="product"
+                        productKind={isPurchase ? "ITEM" : "ALL"}
                         value={lineProductIds[index] ?? ""}
                         valueLabel={lineProductLabels[index] ?? null}
                         onChange={(id, label) => {
@@ -871,6 +907,26 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                         </label>
                       )}
                     </Field>
+
+                    {warehouseId ? (
+                      <Field
+                        label={isPurchase ? "Put on rack / shelf" : "Taken from rack / shelf"}
+                        className="sm:col-span-2"
+                      >
+                        <LocationSelect
+                          warehouseId={warehouseId}
+                          value={lineLocationIds[index] ?? ""}
+                          onChange={(value) =>
+                            setLineLocationIds((current) => {
+                              const next = [...current];
+                              next[index] = value;
+                              return next;
+                            })
+                          }
+                          emptyLabel="Product's usual spot"
+                        />
+                      </Field>
+                    ) : null}
 
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Quantity">

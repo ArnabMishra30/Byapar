@@ -1,4 +1,5 @@
 import { ApiError } from '../../utils/api-error.js';
+import { assertMoneyAccount } from '../money-accounts/money-account.service.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
 import { add, subtract, round, toDecimal, toMoneyString, isGreaterThan } from '../../utils/money.js';
 import { withRetryableTransaction } from '../../config/transaction.js';
@@ -65,6 +66,7 @@ export function toPublicPayment(payment) {
     // Money paid but not applied to a bill: an advance held with the supplier.
     unallocatedAmount: toMoneyString(payment.unallocatedAmount, 2),
     paymentMethod: payment.paymentMethod,
+    moneyAccount: payment.moneyAccount ? { id: payment.moneyAccount.id, name: payment.moneyAccount.name } : null,
     referenceNumber: payment.referenceNumber,
     notes: payment.notes,
     allocations: payment.allocations ? payment.allocations.map(toPublicAllocation) : undefined,
@@ -181,6 +183,7 @@ function assertIsDraft(payment) {
 /** Creates a DRAFT payment. Nothing is settled until it is posted. */
 export async function createDraft(currentUser, input) {
   const { companyId } = currentUser;
+  if (input.moneyAccountId) await assertMoneyAccount(companyId, input.moneyAccountId);
 
   await assertSupplier(companyId, input.supplierId);
   const { allocations, allocatedAmount, unallocatedAmount } = await resolveAllocations(
@@ -207,6 +210,7 @@ export async function createDraft(currentUser, input) {
         allocatedAmount,
         unallocatedAmount,
         paymentMethod: input.paymentMethod,
+        moneyAccountId: input.moneyAccountId ?? null,
         referenceNumber: input.referenceNumber ?? null,
         notes: input.notes ?? null,
         status: 'DRAFT',
@@ -222,6 +226,7 @@ export async function createDraft(currentUser, input) {
 /** Replaces a draft. The supplier may not be changed. */
 export async function updateDraft(currentUser, id, input) {
   const { companyId } = currentUser;
+  if (input.moneyAccountId) await assertMoneyAccount(companyId, input.moneyAccountId);
 
   const existing = await supplierPaymentRepository.findByIdAndCompany(id, companyId);
   if (!existing) {
@@ -254,6 +259,7 @@ export async function updateDraft(currentUser, id, input) {
         allocatedAmount,
         unallocatedAmount,
         paymentMethod: input.paymentMethod,
+        moneyAccountId: input.moneyAccountId ?? null,
         referenceNumber: input.referenceNumber ?? null,
         notes: input.notes ?? null,
       },
@@ -375,11 +381,15 @@ export async function post(currentUser, id) {
     // The general ledger entry, last and in this same transaction. The split
     // between "settled a bill" and "advance held by the supplier" is the same
     // split the sub-ledger just recorded - it is not recalculated here.
+    // The chosen account may have been switched off since the draft.
+    if (locked.moneyAccountId) await assertMoneyAccount(companyId, locked.moneyAccountId, tx);
+
     await glPostingService.recordSupplierPaymentPosted(tx, currentUser, {
       id: locked.id,
       paymentNumber: locked.paymentNumber,
       paymentDate: locked.paymentDate,
       paymentMethod: locked.paymentMethod,
+      moneyAccountId: locked.moneyAccountId ?? null,
       amount: locked.amount,
       allocatedAmount: round(allocatedAmount, MONEY_DP),
       unallocatedAmount: round(subtract(locked.amount, allocatedAmount), MONEY_DP),

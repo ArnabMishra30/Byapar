@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as purchaseController from './purchase.controller.js';
 import {
   createPurchaseSchema,
@@ -16,33 +17,33 @@ export const purchaseRoutes = Router();
 // There is no DELETE: a draft is cancelled, and a posted purchase is permanent.
 purchaseRoutes.use(requireAuth);
 
-purchaseRoutes.get('/', validate({ query: listPurchasesQuerySchema }), purchaseController.list);
-purchaseRoutes.get('/:id', validate({ params: idParamSchema }), purchaseController.get);
+purchaseRoutes.get('/', requireShopPermission('PURCHASES_MANAGE', 'REPORTS_VIEW'), validate({ query: listPurchasesQuerySchema }), purchaseController.list);
+purchaseRoutes.get('/:id', requireShopPermission('PURCHASES_MANAGE', 'REPORTS_VIEW'), validate({ params: idParamSchema }), purchaseController.get);
 
 purchaseRoutes.post(
   '/',
-  requireRole('ADMIN'),
+  requireShopPermission('PURCHASES_MANAGE'),
   validate({ body: createPurchaseSchema }),
   purchaseController.create,
 );
 
 purchaseRoutes.patch(
   '/:id',
-  requireRole('ADMIN'),
+  requireShopPermission('PURCHASES_MANAGE'),
   validate({ params: idParamSchema, body: updatePurchaseSchema }),
   purchaseController.update,
 );
 
 purchaseRoutes.post(
   '/:id/post',
-  requireRole('ADMIN'),
+  requireShopPermission('PURCHASES_MANAGE'),
   validate({ params: idParamSchema }),
   purchaseController.post,
 );
 
 purchaseRoutes.post(
   '/:id/cancel',
-  requireRole('ADMIN'),
+  requireShopPermission('PURCHASES_MANAGE'),
   validate({ params: idParamSchema }),
   purchaseController.cancel,
 );

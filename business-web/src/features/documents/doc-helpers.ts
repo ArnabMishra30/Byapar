@@ -189,6 +189,14 @@ export interface LineRow {
    * not silently swap the tax; a new line leaves it to the product's default.
    */
   taxId?: string | null;
+  /**
+   * A FREE line (sales only): price 0, but the stock still goes out. Given by
+   * hand when offerId is empty; from a saved offer otherwise - the server works
+   * those out again on every save, so they cannot be edited into more.
+   */
+  isFree?: boolean;
+  offerId?: string | null;
+  offerName?: string | null;
 }
 
 let lineSeq = 0;
@@ -226,6 +234,9 @@ export function lineFromItem(
     discountType: type,
     discountValue: hasDiscount && isNonZero(item.discountValue) ? trimDecimal(item.discountValue) : "",
     taxId: (item.taxId as string | null | undefined) ?? null,
+    isFree: item.isFree === true,
+    offerId: (item.offer as { id?: string } | null | undefined)?.id ?? null,
+    offerName: (item.offer as { name?: string } | null | undefined)?.name ?? null,
   };
 }
 
@@ -266,8 +277,9 @@ export function buildDocumentBody(values: DocumentFormValues): Record<string, un
         productId: line.productId,
         ...(line.taxId ? { taxId: line.taxId } : {}),
         quantity: line.quantity.trim(),
-        [values.amountField]: line.amount.trim(),
-        ...(line.discountValue.trim() && isNonZero(line.discountValue)
+        [values.amountField]: line.isFree ? "0" : line.amount.trim(),
+        ...(line.isFree ? { isFree: true, ...(line.offerId ? { offerId: line.offerId } : {}) } : {}),
+        ...(!line.isFree && line.discountValue.trim() && isNonZero(line.discountValue)
           ? { discountType: line.discountType, discountValue: line.discountValue.trim() }
           : { discountType: "NONE" }),
       })),

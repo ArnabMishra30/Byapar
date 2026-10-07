@@ -113,8 +113,8 @@ export const RETURN_CONFIG: Record<ReturnKind, ReturnConfig> = {
     postTitle: "Complete this return?",
     postDescription:
       "The items come back into stock and the customer owes you less (a credit note is raised against their invoice). A completed return cannot be edited or undone.",
-    draftCapability: "sales.draft",
-    postCapability: "sales.post",
+    draftCapability: "salesReturns.draft",
+    postCapability: "sales.cancel",
     listHref: ROUTES.salesReturns,
     newHref: ROUTES.newSalesReturn,
     detailHref: DETAIL_ROUTES.salesReturn,

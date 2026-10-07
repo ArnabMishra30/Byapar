@@ -306,6 +306,7 @@ function CurrentStockCard() {
             <div className="grid w-full gap-2 sm:grid-cols-3 sm:items-center">
               <EntitySelect
                 kind="product"
+                productKind="ITEM"
                 value={product?.id}
                 valueLabel={product?.name}
                 placeholder="Find a product"

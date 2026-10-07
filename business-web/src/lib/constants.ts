@@ -1,3 +1,4 @@
+import type { Capability } from "@/lib/permissions";
 export const APP_CONFIG = {
   name: "Byapar",
   tagline: "Business & Shop Management",
@@ -97,6 +98,9 @@ export const ROUTES = {
   supplierReport: `${SHOP_PREFIX}/reports/suppliers`,
   expenseReport: `${SHOP_PREFIX}/reports/expenses`,
   profitLoss: `${SHOP_PREFIX}/reports/profit-loss`,
+  billerReport: `${SHOP_PREFIX}/reports/billers`,
+  offersReport: `${SHOP_PREFIX}/reports/offers`,
+  offers: `${SHOP_PREFIX}/stock/offers`,
   gstReport: `${SHOP_PREFIX}/reports/gst`,
   gstRegistration: `${SHOP_PREFIX}/gst`,
 
@@ -175,6 +179,8 @@ export interface NavItem {
   requireGst?: boolean;
   /** Hidden for roles that cannot use it at all. UX only - never security. */
   adminOnly?: boolean;
+  /** Hidden for a staff member whose permissions do not include this. */
+  requires?: Capability;
 }
 
 export interface NavSection {
@@ -217,10 +223,10 @@ export const NAVIGATION: NavSection[] = [
   {
     title: "Purchase",
     items: [
-      { title: "Purchases", href: ROUTES.purchases, icon: "ShoppingCart" },
-      { title: "Purchase Bills", href: ROUTES.purchaseBills, icon: "FileText" },
-      { title: "Purchase Returns", href: ROUTES.purchaseReturns, icon: "Undo2" },
-      { title: "Supplier Payables", href: ROUTES.supplierPayables, icon: "HandCoins" },
+      { title: "Purchases", href: ROUTES.purchases, icon: "ShoppingCart", requires: "purchases.read" },
+      { title: "Purchase Bills", href: ROUTES.purchaseBills, icon: "FileText", requires: "purchases.read" },
+      { title: "Purchase Returns", href: ROUTES.purchaseReturns, icon: "Undo2", requires: "purchases.read" },
+      { title: "Supplier Payables", href: ROUTES.supplierPayables, icon: "HandCoins", requires: "purchases.read" },
     ],
   },
   {
@@ -232,52 +238,55 @@ export const NAVIGATION: NavSection[] = [
       { title: "Stock Out", href: ROUTES.stockOut, icon: "PackageMinus" },
       { title: "Stock Adjustments", href: ROUTES.stockAdjustments, icon: "SlidersHorizontal" },
       { title: "Low Stock", href: ROUTES.lowStock, icon: "TriangleAlert" },
+      { title: "Offers", href: ROUTES.offers, icon: "BadgeCheck" },
     ],
   },
   {
     title: "Parties",
     items: [
       { title: "All Parties", href: ROUTES.parties, icon: "Users" },
-      { title: "Add Party", href: ROUTES.newParty, icon: "UserPlus", adminOnly: true },
+      { title: "Add Party", href: ROUTES.newParty, icon: "UserPlus", requires: "parties.manage" },
     ],
   },
   {
     title: "Customers",
     items: [
       { title: "Customers", href: ROUTES.customers, icon: "UserCheck" },
-      { title: "Add Customer", href: ROUTES.newCustomer, icon: "UserPlus", adminOnly: true },
+      { title: "Add Customer", href: ROUTES.newCustomer, icon: "UserPlus", requires: "parties.manage" },
       {
         title: "Bulk Upload Customers",
         href: ROUTES.importCustomers,
         icon: "Upload",
         adminOnly: true,
       },
-      { title: "Credit Book", href: ROUTES.creditBook, icon: "BookOpen" },
+      { title: "Credit Book", href: ROUTES.creditBook, icon: "BookOpen", requires: "reports.read" },
     ],
   },
   {
     title: "Suppliers",
-    items: [{ title: "Suppliers", href: ROUTES.suppliers, icon: "Truck" }],
+    items: [{ title: "Suppliers", href: ROUTES.suppliers, icon: "Truck", requires: "purchases.read" }],
   },
   {
     title: "Money",
     items: [
-      { title: "Money Received", href: ROUTES.moneyReceived, icon: "ArrowDownLeft" },
-      { title: "Money Paid", href: ROUTES.moneyPaid, icon: "ArrowUpRight" },
-      { title: "Expenses", href: ROUTES.expenses, icon: "Wallet" },
-      { title: "Cash & Bank", href: ROUTES.cashBank, icon: "Landmark" },
+      { title: "Money Received", href: ROUTES.moneyReceived, icon: "ArrowDownLeft", requires: "money.read" },
+      { title: "Money Paid", href: ROUTES.moneyPaid, icon: "ArrowUpRight", requires: "money.pay" },
+      { title: "Expenses", href: ROUTES.expenses, icon: "Wallet", requires: "expenses.read" },
+      { title: "Cash & Bank", href: ROUTES.cashBank, icon: "Landmark", requires: "reports.read" },
     ],
   },
   {
     title: "Reports",
     items: [
-      { title: "Sales Reports", href: ROUTES.salesReport, icon: "TrendingUp" },
-      { title: "Purchase Reports", href: ROUTES.purchaseReport, icon: "BarChart3" },
-      { title: "Stock Reports", href: ROUTES.stockReport, icon: "Warehouse" },
-      { title: "Customer Reports", href: ROUTES.customerReport, icon: "UserCheck" },
-      { title: "Supplier Reports", href: ROUTES.supplierReport, icon: "Truck" },
-      { title: "Expense Reports", href: ROUTES.expenseReport, icon: "Wallet" },
-      { title: "Profit & Loss", href: ROUTES.profitLoss, icon: "PieChart" },
+      { title: "Sales Reports", href: ROUTES.salesReport, icon: "TrendingUp", requires: "reports.read" },
+      { title: "Purchase Reports", href: ROUTES.purchaseReport, icon: "BarChart3", requires: "reports.read" },
+      { title: "Stock Reports", href: ROUTES.stockReport, icon: "Warehouse", requires: "reports.read" },
+      { title: "Customer Reports", href: ROUTES.customerReport, icon: "UserCheck", requires: "reports.read" },
+      { title: "Supplier Reports", href: ROUTES.supplierReport, icon: "Truck", requires: "reports.read" },
+      { title: "Expense Reports", href: ROUTES.expenseReport, icon: "Wallet", requires: "reports.read" },
+      { title: "Profit & Loss", href: ROUTES.profitLoss, icon: "PieChart", requires: "reports.read" },
+      { title: "Billers' Day", href: ROUTES.billerReport, icon: "Users", requires: "reports.read" },
+      { title: "Offers Given", href: ROUTES.offersReport, icon: "BadgeCheck", requires: "reports.read" },
     ],
   },
   {
@@ -285,7 +294,7 @@ export const NAVIGATION: NavSection[] = [
     title: "Tax",
     requireGst: true,
     items: [
-      { title: "GST Reports", href: ROUTES.gstReport, icon: "ShieldCheck", requireGst: true },
+      { title: "GST Reports", href: ROUTES.gstReport, icon: "ShieldCheck", requireGst: true, requires: "reports.read" },
       { title: "GST Registration", href: ROUTES.gstRegistration, icon: "BadgeCheck", requireGst: true },
     ],
   },
@@ -303,8 +312,8 @@ export const NAVIGATION: NavSection[] = [
     // For the accountant: kept last and out of a shopkeeper's way.
     title: "Accountant",
     items: [
-      { title: "Accounts", href: ROUTES.accounts, icon: "BookMarked" },
-      { title: "Journal & Ledger", href: ROUTES.journal, icon: "Scale" },
+      { title: "Accounts", href: ROUTES.accounts, icon: "BookMarked", requires: "reports.read" },
+      { title: "Journal & Ledger", href: ROUTES.journal, icon: "Scale", requires: "reports.read" },
       { title: "Opening Balance", href: ROUTES.openingBalance, icon: "PlayCircle", adminOnly: true },
       { title: "Accounting Periods", href: ROUTES.periods, icon: "CalendarRange", adminOnly: true },
     ],

@@ -52,8 +52,10 @@ interface SideTerms {
 }
 
 export interface PartyDetail extends Party {
-  customer: (SideTerms & { receivable: string; overdue: string; overdueCount: number }) | null;
-  supplier: (SideTerms & { payable: string; overdue: string; overdueCount: number }) | null;
+  // Balances are null for a user not allowed to see them (e.g. a cashier and a
+  // supplier's balance).
+  customer: (SideTerms & { receivable: string | null; overdue: string | null; overdueCount: number | null }) | null;
+  supplier: (SideTerms & { payable: string | null; overdue: string | null; overdueCount: number | null }) | null;
 }
 
 export interface PartyMatch {

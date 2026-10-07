@@ -22,6 +22,8 @@ const PAYMENT_FIELDS = {
   allocatedAmount: true,
   unallocatedAmount: true,
   paymentMethod: true,
+  moneyAccountId: true,
+  moneyAccount: { select: { id: true, name: true } },
   referenceNumber: true,
   notes: true,
   status: true,
@@ -64,6 +66,8 @@ export async function lockForPosting(tx, id, companyId) {
       amount: true,
       // Needed by the journal entry: cash and bank are different accounts.
       paymentMethod: true,
+  moneyAccountId: true,
+  moneyAccount: { select: { id: true, name: true } },
       allocations: { select: { id: true, customerReceivableId: true, amount: true } },
     },
   });
@@ -75,9 +79,11 @@ export async function lockForPosting(tx, id, companyId) {
  */
 export async function findManyByCompany(
   companyId,
-  { skip, take, customerId, status, paymentMethod, search, fromDate, toDate },
+  { skip, take, customerId, status, paymentMethod, search, fromDate, toDate, createdById },
 ) {
   const where = { companyId };
+  // A biller without "see everyone's sales" sees only their own.
+  if (createdById) where.createdById = createdById;
   if (customerId) where.customerId = customerId;
   if (status) where.status = status;
   if (paymentMethod) where.paymentMethod = paymentMethod;

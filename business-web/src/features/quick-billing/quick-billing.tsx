@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { MoneyAccountSelect } from "@/components/shared/money-account-select";
+import { ComboBuilderDialog } from "@/features/products/combo-builder";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Info, Loader2, Save, ShieldAlert, UserPlus, Zap } from "lucide-react";
+import { CheckCircle2, Info, Loader2, Package, Save, ShieldAlert, UserPlus, Zap } from "lucide-react";
 import { toast } from "sonner";
 import {
   ApiError,
@@ -76,6 +78,9 @@ export function QuickBillingScreen() {
 
   // --- the bill being made ---------------------------------------------------
   const [customerId, setCustomerId] = React.useState("");
+  const [comboOpen, setComboOpen] = React.useState(false);
+  // Which cash / bank / UPI account the money goes into.
+  const [moneyAccountId, setMoneyAccountId] = React.useState("");
   const [customerLabel, setCustomerLabel] = React.useState("");
   const [warehouseId, setWarehouseId] = React.useState("");
   const [invoiceDate, setInvoiceDate] = React.useState(localToday);
@@ -135,7 +140,8 @@ export function QuickBillingScreen() {
 
   const addItem = async (productId: string, label: string) => {
     edited();
-    const existing = lines.find((line) => line.productId === productId);
+    // Adding an item again adds to its PAID line, never to a free one.
+    const existing = lines.find((line) => line.productId === productId && !line.isFree);
     if (existing) {
       // Same item again: one more of it, not a second line.
       const qty = Number(existing.quantity);
@@ -194,7 +200,7 @@ export function QuickBillingScreen() {
     if (lines.length === 0) next.lines = "Add at least one item";
     for (const line of lines) {
       if (!isPositiveAmount(line.quantity)) next[`qty-${line.key}`] = "More than zero";
-      if (line.unitPrice === "" || !Number.isFinite(Number(line.unitPrice)) || Number(line.unitPrice) < 0) {
+      if (!line.isFree && (line.unitPrice === "" || !Number.isFinite(Number(line.unitPrice)) || Number(line.unitPrice) < 0)) {
         next[`price-${line.key}`] = "Enter a price";
       }
     }
@@ -210,7 +216,8 @@ export function QuickBillingScreen() {
     items: lines.map((line) => ({
       productId: line.productId,
       quantity: line.quantity.trim(),
-      unitPrice: line.unitPrice.trim(),
+      unitPrice: line.isFree ? "0" : line.unitPrice.trim(),
+      ...(line.isFree ? { isFree: true } : {}),
     })),
   });
 
@@ -344,6 +351,7 @@ export function QuickBillingScreen() {
         paymentDate: invoiceDate,
         amount,
         paymentMethod: method,
+        ...(moneyAccountId ? { moneyAccountId } : {}),
         referenceNumber: posted.invoiceNumber || null,
         allocations: [{ receivableId: receivable.id, amount }],
       });
@@ -501,8 +509,26 @@ export function QuickBillingScreen() {
                 errors={errors}
                 disabled={locked}
                 onAdd={addItem}
+                canGiveFree={can("sales.discount")}
                 onChange={changeLine}
                 onRemove={removeLine}
+              />
+              {!locked ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-[44px] gap-1.5 text-primary"
+                  onClick={() => setComboOpen(true)}
+                >
+                  <Package className="h-4 w-4" />
+                  Make a combo
+                </Button>
+              ) : null}
+              <ComboBuilderDialog
+                open={comboOpen}
+                onOpenChange={setComboOpen}
+                onCreated={(combo) => void addItem(combo.id, combo.name)}
               />
               <Field label="Notes" htmlFor="qb-notes">
                 <Textarea
@@ -573,6 +599,9 @@ export function QuickBillingScreen() {
                   }}
                   method={method}
                   onMethodChange={setMethod}
+                  accountPicker={
+                    <MoneyAccountSelect value={moneyAccountId} onChange={setMoneyAccountId} emptyLabel="Main Cash / Bank" />
+                  }
                   grandTotal={hasCurrentTotal ? draft?.grandTotal : null}
                   error={errors.paid}
                   disabled={locked}

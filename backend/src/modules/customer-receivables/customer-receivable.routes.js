@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as customerReceivableController from './customer-receivable.controller.js';
 import {
   listReceivablesQuerySchema,
@@ -20,12 +21,14 @@ customerReceivableRoutes.use(requireAuth);
 
 customerReceivableRoutes.get(
   '/',
+  requireShopPermission('REPORTS_VIEW', 'MONEY_RECEIVE'),
   validate({ query: listReceivablesQuerySchema }),
   customerReceivableController.listReceivables,
 );
 
 customerReceivableRoutes.get(
   '/:id',
+  requireShopPermission('REPORTS_VIEW', 'MONEY_RECEIVE'),
   validate({ params: idParamSchema }),
   customerReceivableController.getReceivable,
 );
@@ -41,24 +44,28 @@ customerLedgerRoutes.use(requireAuth);
 
 customerLedgerRoutes.get(
   '/:id/ledger',
+  requireShopPermission('REPORTS_VIEW'),
   validate({ params: customerIdParamSchema, query: ledgerQuerySchema }),
   customerReceivableController.customerLedger,
 );
 
 customerLedgerRoutes.get(
   '/:id/outstanding',
+  requireShopPermission('REPORTS_VIEW', 'MONEY_RECEIVE'),
   validate({ params: customerIdParamSchema }),
   customerReceivableController.customerOutstanding,
 );
 
 customerLedgerRoutes.get(
   '/:id/receivables',
+  requireShopPermission('REPORTS_VIEW', 'MONEY_RECEIVE'),
   validate({ params: customerIdParamSchema }),
   customerReceivableController.customerReceivables,
 );
 
 customerLedgerRoutes.get(
   '/:id/payments',
+  requireShopPermission('REPORTS_VIEW'),
   validate({ params: customerIdParamSchema, query: customerPaymentsQuerySchema }),
   customerReceivableController.customerPayments,
 );

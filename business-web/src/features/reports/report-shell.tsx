@@ -51,6 +51,8 @@ export function ReportTabs() {
     { label: "Suppliers", href: ROUTES.supplierReport },
     { label: "Expenses", href: ROUTES.expenseReport },
     { label: "Profit & Loss", href: ROUTES.profitLoss },
+    { label: "Billers", href: ROUTES.billerReport },
+    { label: "Offers", href: ROUTES.offersReport },
     // A shop without GST never sees a tax tab.
     { label: "GST", href: ROUTES.gstReport, show: isGstEnabled },
   ];

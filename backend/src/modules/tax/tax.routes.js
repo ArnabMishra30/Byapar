@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as taxController from './tax.controller.js';
 import {
   updateGstProfileSchema,
@@ -83,21 +84,23 @@ gstRoutes.patch(
 
 gstRoutes.get(
   '/gst-summary',
+  requireShopPermission('REPORTS_VIEW'),
   validate({ query: gstReportQuerySchema }),
   taxController.getSummary,
 );
 
-gstRoutes.get('/input-tax', validate({ query: gstReportQuerySchema }), taxController.getInputTax);
+gstRoutes.get('/input-tax', requireShopPermission('REPORTS_VIEW'), validate({ query: gstReportQuerySchema }), taxController.getInputTax);
 
-gstRoutes.get('/output-tax', validate({ query: gstReportQuerySchema }), taxController.getOutputTax);
+gstRoutes.get('/output-tax', requireShopPermission('REPORTS_VIEW'), validate({ query: gstReportQuerySchema }), taxController.getOutputTax);
 
 gstRoutes.get(
   '/gst-purchases',
+  requireShopPermission('REPORTS_VIEW'),
   validate({ query: gstLinesQuerySchema }),
   taxController.getPurchaseLines,
 );
 
-gstRoutes.get('/gst-sales', validate({ query: gstLinesQuerySchema }), taxController.getSalesLines);
+gstRoutes.get('/gst-sales', requireShopPermission('REPORTS_VIEW'), validate({ query: gstLinesQuerySchema }), taxController.getSalesLines);
 
 // --- GST return preparation ------------------------------------------------
 //
@@ -105,18 +108,21 @@ gstRoutes.get('/gst-sales', validate({ query: gstLinesQuerySchema }), taxControl
 // as a document type. Same RBAC as every other GST read: ADMIN and STAFF.
 gstRoutes.get(
   '/returns/gstr-1',
+  requireShopPermission('REPORTS_VIEW'),
   validate({ query: gstReturnPeriodQuerySchema }),
   taxController.getGstr1,
 );
 
 gstRoutes.get(
   '/returns/gstr-3b',
+  requireShopPermission('REPORTS_VIEW'),
   validate({ query: gstReturnPeriodQuerySchema }),
   taxController.getGstr3b,
 );
 
 gstRoutes.get(
   '/returns/reconciliation',
+  requireShopPermission('REPORTS_VIEW'),
   validate({ query: gstReturnPeriodQuerySchema }),
   taxController.getReturnReconciliation,
 );
@@ -124,12 +130,14 @@ gstRoutes.get(
 // Declared last so the fixed paths above are never read as a :source.
 gstRoutes.get(
   '/lines/:source',
+  requireShopPermission('REPORTS_VIEW'),
   validate({ params: gstSourceParamsSchema, query: gstLinesQuerySchema }),
   taxController.getLinesBySource,
 );
 
 gstRoutes.get(
   '/hsn-summary/:source',
+  requireShopPermission('REPORTS_VIEW'),
   validate({ params: gstSourceParamsSchema, query: gstReportQuerySchema }),
   taxController.getHsnSummary,
 );

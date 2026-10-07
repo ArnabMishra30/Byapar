@@ -1,4 +1,5 @@
 import { ApiError } from '../../utils/api-error.js';
+import { assertLocationInWarehouse } from '../storage-locations/storage-location.service.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
 import { toMoneyString, round } from '../../utils/money.js';
 import { withRetryableTransaction } from '../../config/transaction.js';
@@ -45,6 +46,7 @@ function toPublicItem(item) {
   return {
     id: item.id,
     lineNumber: item.lineNumber,
+    storageLocationId: item.storageLocationId ?? null,
     productId: item.productId,
     productName: item.productNameSnapshot,
     sku: item.skuSnapshot,
@@ -193,6 +195,20 @@ async function loadAndValidateReferences(companyId, input) {
     // against the bill's own date rather than against today.
     assertLineTaxUsable(product, tax, input.invoiceDate, `Item ${index + 1}`);
 
+    // A combo is never bought as such: the shop buys its contents.
+    if (product.isCombo) {
+      throw ApiError.business(
+        422,
+        'COMBO_NOT_PURCHASABLE',
+        `Item ${index + 1}: "${product.name}" is a combo. Buy the items inside it instead.`,
+      );
+    }
+
+    // A rack chosen for the line must be one of this store's own.
+    if (item.storageLocationId) {
+      await assertLocationInWarehouse(companyId, input.warehouseId, item.storageLocationId);
+    }
+
     resolvedItems.push({ input: item, product, tax, index });
   }
 
@@ -224,6 +240,7 @@ function buildItemRows(resolvedItems, gstContext) {
       row: {
         lineNumber: index + 1,
         productId: product.id,
+        storageLocationId: input.storageLocationId ?? null,
         taxId: tax ? tax.id : null,
         quantity: round(input.quantity, 6),
         unitCost: round(input.unitCost, 4),
@@ -431,6 +448,7 @@ export async function post(currentUser, id) {
         referenceType: PURCHASE_REFERENCE_TYPE,
         referenceId: locked.id,
         notes: `Purchase ${locked.purchaseNumber}`,
+        storageLocationId: item.storageLocationId ?? null,
       });
 
       movements.push(movement);

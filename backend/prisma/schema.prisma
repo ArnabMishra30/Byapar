@@ -52,22 +52,22 @@ model Company {
 
   /// Collected when a sales rep signs the shop up. All optional: a small shop
   /// may not have an email, and none of this affects the books.
-  ownerName           String?
-  phone               String?
-  email               String?
-  city                String?
-  pincode             String?
+  ownerName String?
+  phone     String?
+  email     String?
+  city      String?
+  pincode   String?
 
   /// The sales staff member who registered this shop, kept for their commission
   /// and for the platform's own reporting. Null for a shop created any other way.
-  onboardedById       String?
+  onboardedById String?
 
-  isActive            Boolean             @default(true)
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   users                 User[]
-  onboardedBy           User?              @relation("CompanyOnboardedBy", fields: [onboardedById], references: [id])
+  onboardedBy           User?                 @relation("CompanyOnboardedBy", fields: [onboardedById], references: [id])
   subscriptions         Subscription[]
   bills                 Bill[]
   settings              CompanySettings?
@@ -79,6 +79,9 @@ model Company {
   suppliers             Supplier[]
   customers             Customer[]
   parties               Party[]
+  storageLocations      StorageLocation[]
+  offers                Offer[]
+  shareLinks            ShareLink[]
   inventoryBalances     InventoryBalance[]
   stockMovements        StockMovement[]
   purchases             Purchase[]
@@ -97,7 +100,7 @@ model Company {
   journalLines          JournalLine[]
   taxClassifications    TaxClassification[]
   expenses              Expense[]
-  accountingPeriods AccountingPeriod[]
+  accountingPeriods     AccountingPeriod[]
 
   @@map("companies")
 }
@@ -119,7 +122,7 @@ model CompanySettings {
   /// Defaults to FALSE, which is exactly how every company behaved before
   /// periods existed: a closed period blocks, and an absent one does not. A
   /// business that wants the stricter rule turns it on deliberately.
-  requireOpenPeriod       Boolean @default(false)
+  requireOpenPeriod Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -182,11 +185,11 @@ model Tax {
   /// The component split. By convention cgst + sgst == rate and igst == rate;
   /// both are validated on write. Backfilled deterministically for taxes that
   /// existed before this phase.
-  cgstRate Decimal @db.Decimal(5, 2) @default(0)
-  sgstRate Decimal @db.Decimal(5, 2) @default(0)
-  igstRate Decimal @db.Decimal(5, 2) @default(0)
+  cgstRate Decimal @default(0) @db.Decimal(5, 2)
+  sgstRate Decimal @default(0) @db.Decimal(5, 2)
+  igstRate Decimal @default(0) @db.Decimal(5, 2)
   /// Compensation cess, charged on top of GST. Zero for almost everything.
-  cessRate Decimal @db.Decimal(5, 2) @default(0)
+  cessRate Decimal @default(0) @db.Decimal(5, 2)
 
   /// Why a line taxed at this rate is taxed that way. A 0% TAXABLE supply and
   /// an EXEMPT supply look identical in the ledger and are reported differently.
@@ -231,6 +234,7 @@ model Warehouse {
 
   inventoryBalances InventoryBalance[]
   stockMovements    StockMovement[]
+  storageLocations  StorageLocation[]
   purchases         Purchase[]
   purchaseReturns   PurchaseReturn[]
   salesInvoices     SalesInvoice[]
@@ -256,10 +260,10 @@ model Product {
   barcode             String?
   description         String?
 
-  purchasePrice Decimal @db.Decimal(18, 4) @default(0)
-  sellingPrice  Decimal @db.Decimal(18, 4) @default(0)
+  purchasePrice Decimal @default(0) @db.Decimal(18, 4)
+  sellingPrice  Decimal @default(0) @db.Decimal(18, 4)
   /// Quantity threshold for future low-stock alerts. Not a stock level.
-  reorderLevel  Decimal @db.Decimal(18, 6) @default(0)
+  reorderLevel  Decimal @default(0) @db.Decimal(18, 6)
 
   isActive Boolean @default(true)
 
@@ -278,6 +282,24 @@ model Product {
   unit              Unit               @relation(fields: [unitId], references: [id])
   tax               Tax?               @relation(fields: [taxId], references: [id])
   taxClassification TaxClassification? @relation(fields: [taxClassificationId], references: [id])
+
+  /// Where this product is usually kept (a rack, drawer, fridge...). Stock
+  /// movements are tagged with it unless the person recording says otherwise.
+  storageLocationId String?
+  storageLocation   StorageLocation? @relation(fields: [storageLocationId], references: [id])
+
+  /// A COMBO is sold as one item but holds no stock of its own: selling it
+  /// takes each of its contents (ComboComponent) out of the stock ledger.
+  isCombo Boolean @default(false)
+  /// A combo made on the spot while billing and not saved for later. Kept so
+  /// the bill can point at it, but hidden from product lists and pickers.
+  isAdHoc Boolean @default(false)
+
+  comboComponents ComboComponent[]            @relation("ComboOf")
+  usedInCombos    ComboComponent[]            @relation("ComboContent")
+  soldInCombos    SalesInvoiceItemComponent[]
+  offersBuy       Offer[]                     @relation("OfferBuy")
+  offersFree      Offer[]                     @relation("OfferFree")
 
   @@unique([companyId, sku])
   @@unique([companyId, barcode])
@@ -346,11 +368,11 @@ model Supplier {
 
   /// Balance carried in when the business started using this system.
   /// Purchase and payable ledgers are a later phase.
-  openingBalance Decimal @db.Decimal(18, 4) @default(0)
+  openingBalance Decimal @default(0) @db.Decimal(18, 4)
   /// What we are willing to owe this supplier. Recorded and reported; never
   /// enforced, because refusing to record a bill a supplier has already sent
   /// would lose a real liability.
-  creditLimit    Decimal @db.Decimal(18, 4) @default(0)
+  creditLimit    Decimal @default(0) @db.Decimal(18, 4)
   /// Payment terms in days, used to derive a bill's due date when none is given.
   creditDays     Int?
 
@@ -389,11 +411,11 @@ model Customer {
   stateCode           String?
   gstRegistrationType GstRegistrationType @default(UNREGISTERED)
 
-  openingBalance Decimal @db.Decimal(18, 4) @default(0)
+  openingBalance Decimal @default(0) @db.Decimal(18, 4)
   /// The most this customer may owe at once. ZERO MEANS UNLIMITED - it is the
   /// default every customer already carries, so treating it as "no credit"
   /// would block every existing sale. See docs/architecture.md.
-  creditLimit    Decimal @db.Decimal(18, 4) @default(0)
+  creditLimit    Decimal @default(0) @db.Decimal(18, 4)
   /// Payment terms in days. When set, a sales invoice with no explicit due date
   /// gets invoiceDate + creditDays, which is what makes overdue reporting work
   /// without anyone typing a date on every invoice.
@@ -446,43 +468,47 @@ model User {
   /// Empty for shop users, whose access is decided by their role alone, and
   /// ignored for PLATFORM_ADMIN, who can do everything.
   permissions String[] @default([])
+  /// For a shop's STAFF: the ready-made role the owner picked (CASHIER,
+  /// STOREKEEPER, ACCOUNTANT, MANAGER, CUSTOM). Null = a staff account from
+  /// before per-user permissions, which keeps the old staff abilities.
+  shopRole    String?
 
-  stockMovements            StockMovement[]
-  purchasesCreated          Purchase[]            @relation("PurchaseCreatedBy")
-  purchasesPosted           Purchase[]            @relation("PurchasePostedBy")
-  purchasesCancelled        Purchase[]            @relation("PurchaseCancelledBy")
-  purchaseReturnsCreated    PurchaseReturn[]      @relation("PurchaseReturnCreatedBy")
-  purchaseReturnsPosted     PurchaseReturn[]      @relation("PurchaseReturnPostedBy")
-  purchaseReturnsCancelled  PurchaseReturn[]      @relation("PurchaseReturnCancelledBy")
-  supplierLedgerEntries     SupplierLedgerEntry[]
-  supplierPaymentsCreated   SupplierPayment[]     @relation("SupplierPaymentCreatedBy")
-  supplierPaymentsPosted    SupplierPayment[]     @relation("SupplierPaymentPostedBy")
-  supplierPaymentsCancelled SupplierPayment[]     @relation("SupplierPaymentCancelledBy")
-  customerLedgerEntries     CustomerLedgerEntry[]
-  salesInvoicesCreated      SalesInvoice[]        @relation("SalesInvoiceCreatedBy")
-  salesInvoicesCreditOverridden SalesInvoice[]    @relation("SalesInvoiceCreditOverrideBy")
-  accountingPeriodsCreated  AccountingPeriod[]    @relation("AccountingPeriodCreatedBy")
-  companiesOnboarded        Company[]             @relation("CompanyOnboardedBy")
-  subscriptionsCreated      Subscription[]        @relation("SubscriptionCreatedBy")
-  subscriptionPaymentsTaken SubscriptionPayment[] @relation("SubscriptionPaymentCollectedBy")
-  billsUploaded             Bill[]                @relation("BillUploadedBy")
-  billsPosted               Bill[]                @relation("BillPostedBy")
-  accountingPeriodsClosed   AccountingPeriod[]    @relation("AccountingPeriodClosedBy")
-  accountingPeriodsReopened AccountingPeriod[]    @relation("AccountingPeriodReopenedBy")
-  salesInvoicesPosted       SalesInvoice[]        @relation("SalesInvoicePostedBy")
-  salesInvoicesCancelled    SalesInvoice[]        @relation("SalesInvoiceCancelledBy")
-  customerPaymentsCreated   CustomerPayment[]     @relation("CustomerPaymentCreatedBy")
-  customerPaymentsPosted    CustomerPayment[]     @relation("CustomerPaymentPostedBy")
-  customerPaymentsCancelled CustomerPayment[]     @relation("CustomerPaymentCancelledBy")
-  salesReturnsCreated       SalesReturn[]         @relation("SalesReturnCreatedBy")
-  salesReturnsPosted        SalesReturn[]         @relation("SalesReturnPostedBy")
-  salesReturnsCancelled     SalesReturn[]         @relation("SalesReturnCancelledBy")
-  journalEntriesCreated     JournalEntry[]
-  expensesCreated           Expense[]             @relation("ExpenseCreatedBy")
-  expensesPosted            Expense[]             @relation("ExpensePostedBy")
-  expensesCancelled         Expense[]             @relation("ExpenseCancelledBy")
-  expensesReversed          Expense[]             @relation("ExpenseReversedBy")
-  refreshTokens             RefreshToken[]
+  stockMovements                StockMovement[]
+  purchasesCreated              Purchase[]            @relation("PurchaseCreatedBy")
+  purchasesPosted               Purchase[]            @relation("PurchasePostedBy")
+  purchasesCancelled            Purchase[]            @relation("PurchaseCancelledBy")
+  purchaseReturnsCreated        PurchaseReturn[]      @relation("PurchaseReturnCreatedBy")
+  purchaseReturnsPosted         PurchaseReturn[]      @relation("PurchaseReturnPostedBy")
+  purchaseReturnsCancelled      PurchaseReturn[]      @relation("PurchaseReturnCancelledBy")
+  supplierLedgerEntries         SupplierLedgerEntry[]
+  supplierPaymentsCreated       SupplierPayment[]     @relation("SupplierPaymentCreatedBy")
+  supplierPaymentsPosted        SupplierPayment[]     @relation("SupplierPaymentPostedBy")
+  supplierPaymentsCancelled     SupplierPayment[]     @relation("SupplierPaymentCancelledBy")
+  customerLedgerEntries         CustomerLedgerEntry[]
+  salesInvoicesCreated          SalesInvoice[]        @relation("SalesInvoiceCreatedBy")
+  salesInvoicesCreditOverridden SalesInvoice[]        @relation("SalesInvoiceCreditOverrideBy")
+  accountingPeriodsCreated      AccountingPeriod[]    @relation("AccountingPeriodCreatedBy")
+  companiesOnboarded            Company[]             @relation("CompanyOnboardedBy")
+  subscriptionsCreated          Subscription[]        @relation("SubscriptionCreatedBy")
+  subscriptionPaymentsTaken     SubscriptionPayment[] @relation("SubscriptionPaymentCollectedBy")
+  billsUploaded                 Bill[]                @relation("BillUploadedBy")
+  billsPosted                   Bill[]                @relation("BillPostedBy")
+  accountingPeriodsClosed       AccountingPeriod[]    @relation("AccountingPeriodClosedBy")
+  accountingPeriodsReopened     AccountingPeriod[]    @relation("AccountingPeriodReopenedBy")
+  salesInvoicesPosted           SalesInvoice[]        @relation("SalesInvoicePostedBy")
+  salesInvoicesCancelled        SalesInvoice[]        @relation("SalesInvoiceCancelledBy")
+  customerPaymentsCreated       CustomerPayment[]     @relation("CustomerPaymentCreatedBy")
+  customerPaymentsPosted        CustomerPayment[]     @relation("CustomerPaymentPostedBy")
+  customerPaymentsCancelled     CustomerPayment[]     @relation("CustomerPaymentCancelledBy")
+  salesReturnsCreated           SalesReturn[]         @relation("SalesReturnCreatedBy")
+  salesReturnsPosted            SalesReturn[]         @relation("SalesReturnPostedBy")
+  salesReturnsCancelled         SalesReturn[]         @relation("SalesReturnCancelledBy")
+  journalEntriesCreated         JournalEntry[]
+  expensesCreated               Expense[]             @relation("ExpenseCreatedBy")
+  expensesPosted                Expense[]             @relation("ExpensePostedBy")
+  expensesCancelled             Expense[]             @relation("ExpenseCancelledBy")
+  expensesReversed              Expense[]             @relation("ExpenseReversedBy")
+  refreshTokens                 RefreshToken[]
 
   @@index([companyId])
   @@map("users")
@@ -538,9 +564,9 @@ model InventoryBalance {
   productId   String
   warehouseId String
 
-  quantity    Decimal @db.Decimal(18, 6) @default(0)
+  quantity    Decimal @default(0) @db.Decimal(18, 6)
   /// Moving weighted average. Unchanged by stock going out.
-  averageCost Decimal @db.Decimal(18, 4) @default(0)
+  averageCost Decimal @default(0) @db.Decimal(18, 4)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -558,6 +584,49 @@ model InventoryBalance {
 }
 
 /// Append-only. Never updated or deleted: corrections are new compensating movements.
+/// What kind of spot a storage location is. Drives the icon and nothing else.
+enum StorageLocationType {
+  RACK
+  SHELF
+  DRAWER
+  FRIDGE
+  FREEZER
+  COUNTER
+  BIN
+  BOX
+  OTHER
+}
+
+/// A spot inside a warehouse where stock is kept: "Rack A", "Drawer 3",
+/// "Fridge". Each shop defines its own. Master data: it tags products and stock
+/// movements so stock can be found, it does not hold quantities.
+model StorageLocation {
+  id          String              @id @default(uuid())
+  companyId   String
+  warehouseId String
+  name        String
+  type        StorageLocationType @default(RACK)
+  /// Short label printed on the shelf, e.g. "R-A2". Optional.
+  code        String?
+  notes       String?
+  sortOrder   Int                 @default(0)
+  isActive    Boolean             @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company        Company            @relation(fields: [companyId], references: [id])
+  warehouse      Warehouse          @relation(fields: [warehouseId], references: [id])
+  products       Product[]
+  stockMovements StockMovement[]
+  purchaseItems  PurchaseItem[]
+  salesItems     SalesInvoiceItem[]
+
+  @@unique([companyId, warehouseId, name])
+  @@index([companyId, warehouseId])
+  @@map("storage_locations")
+}
+
 model StockMovement {
   id          String            @id @default(uuid())
   companyId   String
@@ -591,6 +660,11 @@ model StockMovement {
   product   Product   @relation(fields: [productId], references: [id])
   warehouse Warehouse @relation(fields: [warehouseId], references: [id])
   createdBy User      @relation(fields: [createdById], references: [id])
+
+  /// The spot inside the warehouse the stock went to or came from. A TAG only:
+  /// quantities are still counted per product per warehouse.
+  storageLocationId String?
+  storageLocation   StorageLocation? @relation(fields: [storageLocationId], references: [id])
 
   @@index([companyId, createdAt])
   @@index([companyId, productId, warehouseId])
@@ -659,10 +733,10 @@ model Purchase {
 
   status PurchaseStatus @default(DRAFT)
 
-  subtotal      Decimal @db.Decimal(18, 4) @default(0)
-  discountTotal Decimal @db.Decimal(18, 4) @default(0)
-  taxTotal      Decimal @db.Decimal(18, 4) @default(0)
-  grandTotal    Decimal @db.Decimal(18, 4) @default(0)
+  subtotal      Decimal @default(0) @db.Decimal(18, 4)
+  discountTotal Decimal @default(0) @db.Decimal(18, 4)
+  taxTotal      Decimal @default(0) @db.Decimal(18, 4)
+  grandTotal    Decimal @default(0) @db.Decimal(18, 4)
 
   /// Supplier name as it was when the bill was entered, so renaming a supplier
   /// later does not rewrite historical documents.
@@ -679,10 +753,10 @@ model Purchase {
   placeOfSupplyStateCode String?
   supplyType             SupplyType?
 
-  cgstTotal Decimal @db.Decimal(18, 4) @default(0)
-  sgstTotal Decimal @db.Decimal(18, 4) @default(0)
-  igstTotal Decimal @db.Decimal(18, 4) @default(0)
-  cessTotal Decimal @db.Decimal(18, 4) @default(0)
+  cgstTotal Decimal @default(0) @db.Decimal(18, 4)
+  sgstTotal Decimal @default(0) @db.Decimal(18, 4)
+  igstTotal Decimal @default(0) @db.Decimal(18, 4)
+  cessTotal Decimal @default(0) @db.Decimal(18, 4)
 
   notes String?
 
@@ -731,12 +805,12 @@ model PurchaseItem {
   unitCost Decimal @db.Decimal(18, 4)
 
   discountType   DiscountType @default(NONE)
-  discountValue  Decimal      @db.Decimal(18, 4) @default(0)
-  discountAmount Decimal      @db.Decimal(18, 4) @default(0)
+  discountValue  Decimal      @default(0) @db.Decimal(18, 4)
+  discountAmount Decimal      @default(0) @db.Decimal(18, 4)
 
-  taxableAmount Decimal @db.Decimal(18, 4) @default(0)
-  taxAmount     Decimal @db.Decimal(18, 4) @default(0)
-  lineTotal     Decimal @db.Decimal(18, 4) @default(0)
+  taxableAmount Decimal @default(0) @db.Decimal(18, 4)
+  taxAmount     Decimal @default(0) @db.Decimal(18, 4)
+  lineTotal     Decimal @default(0) @db.Decimal(18, 4)
 
   // Historical snapshots: an old bill must still print correctly after the
   // product is renamed, the unit changed or the tax rate revised.
@@ -755,10 +829,10 @@ model PurchaseItem {
   igstRateSnapshot     Decimal?      @db.Decimal(5, 2)
   cessRateSnapshot     Decimal?      @db.Decimal(5, 2)
   /// The split of taxAmount. Exactly one of (cgst+sgst) or igst is non-zero.
-  cgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  sgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  igstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  cessAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  cgstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  sgstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  igstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  cessAmount           Decimal       @default(0) @db.Decimal(18, 4)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -770,6 +844,11 @@ model PurchaseItem {
   returnItems PurchaseReturnItem[]
 
   // One line per product: duplicate lines would produce two confusing stock
+  /// The rack / shelf / fridge this line's stock goes to (purchase) or comes
+  /// from (sale). Optional; without it the product's usual spot is used.
+  storageLocationId String?
+  storageLocation   StorageLocation? @relation(fields: [storageLocationId], references: [id])
+
   // movements for the same product in the same document.
   @@unique([purchaseId, productId])
   @@index([purchaseId])
@@ -812,13 +891,13 @@ model PurchaseReturn {
 
   /// Sum of the line totals, valued at the original purchase cost. This is the
   /// taxable value of the debit note.
-  taxableTotal Decimal @db.Decimal(18, 4) @default(0)
+  taxableTotal Decimal @default(0) @db.Decimal(18, 4)
   /// Input tax being handed back, at the ORIGINAL bill's frozen rates. Zero for
   /// a company that has not enabled GST, which is why grandTotal is unchanged
   /// for every document written before this phase.
-  taxTotal     Decimal @db.Decimal(18, 4) @default(0)
+  taxTotal     Decimal @default(0) @db.Decimal(18, 4)
   /// taxableTotal + taxTotal: what the supplier actually credits us.
-  grandTotal   Decimal @db.Decimal(18, 4) @default(0)
+  grandTotal   Decimal @default(0) @db.Decimal(18, 4)
 
   // --- GST snapshot ---------------------------------------------------------
   /// The supplier we are returning to.
@@ -831,10 +910,10 @@ model PurchaseReturn {
   placeOfSupplyStateCode String?
   supplyType             SupplyType?
 
-  cgstTotal Decimal @db.Decimal(18, 4) @default(0)
-  sgstTotal Decimal @db.Decimal(18, 4) @default(0)
-  igstTotal Decimal @db.Decimal(18, 4) @default(0)
-  cessTotal Decimal @db.Decimal(18, 4) @default(0)
+  cgstTotal Decimal @default(0) @db.Decimal(18, 4)
+  sgstTotal Decimal @default(0) @db.Decimal(18, 4)
+  igstTotal Decimal @default(0) @db.Decimal(18, 4)
+  cessTotal Decimal @default(0) @db.Decimal(18, 4)
 
   createdById   String
   postedById    String?
@@ -877,7 +956,7 @@ model PurchaseReturnItem {
   /// quantity * unitCost. Also the taxable value of this line.
   lineTotal       Decimal  @db.Decimal(18, 4)
   /// Input tax reversed on this line, at the original bill's frozen rates.
-  taxAmount       Decimal  @db.Decimal(18, 4) @default(0)
+  taxAmount       Decimal  @default(0) @db.Decimal(18, 4)
   /// The headline rate the ORIGINAL purchase line carried.
   taxRateSnapshot Decimal? @db.Decimal(5, 2)
 
@@ -893,10 +972,10 @@ model PurchaseReturnItem {
   igstRateSnapshot     Decimal?      @db.Decimal(5, 2)
   cessRateSnapshot     Decimal?      @db.Decimal(5, 2)
   /// The split of taxAmount. Exactly one of (cgst+sgst) or igst is non-zero.
-  cgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  sgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  igstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  cessAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  cgstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  sgstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  igstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  cessAmount           Decimal       @default(0) @db.Decimal(18, 4)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -965,7 +1044,7 @@ enum SupplierPaymentStatus {
 
 /// One per POSTED purchase. Created inside the purchase posting transaction.
 model SupplierPayable {
-  id         String @id @default(uuid())
+  id         String  @id @default(uuid())
   companyId  String
   supplierId String
   /// Unique: a purchase can raise exactly one payable, so a repeated post can
@@ -977,9 +1056,9 @@ model SupplierPayable {
 
   originalAmount    Decimal @db.Decimal(18, 4)
   /// Reduced by posted purchase returns against this purchase.
-  creditAmount      Decimal @db.Decimal(18, 4) @default(0)
+  creditAmount      Decimal @default(0) @db.Decimal(18, 4)
   /// Reduced by posted payment allocations.
-  paidAmount        Decimal @db.Decimal(18, 4) @default(0)
+  paidAmount        Decimal @default(0) @db.Decimal(18, 4)
   /// original - credit - paid, never below zero. What may still be allocated.
   outstandingAmount Decimal @db.Decimal(18, 4)
 
@@ -989,8 +1068,8 @@ model SupplierPayable {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company  Company  @relation(fields: [companyId], references: [id])
-  supplier Supplier @relation(fields: [supplierId], references: [id])
+  company  Company   @relation(fields: [companyId], references: [id])
+  supplier Supplier  @relation(fields: [supplierId], references: [id])
   purchase Purchase? @relation(fields: [purchaseId], references: [id])
 
   ledgerEntries SupplierLedgerEntry[]
@@ -1013,8 +1092,8 @@ model SupplierLedgerEntry {
   entryDate DateTime @db.Date
 
   /// Exactly one of these is non-zero. See the sign convention above.
-  debit  Decimal @db.Decimal(18, 4) @default(0)
-  credit Decimal @db.Decimal(18, 4) @default(0)
+  debit  Decimal @default(0) @db.Decimal(18, 4)
+  credit Decimal @default(0) @db.Decimal(18, 4)
 
   /// PURCHASE | PURCHASE_RETURN | SUPPLIER_PAYMENT, plus the document id.
   referenceType String
@@ -1049,8 +1128,8 @@ model SupplierPayment {
   amount            Decimal @db.Decimal(18, 4)
   /// Split of `amount` once posted. Anything unallocated is an advance held
   /// against the supplier.
-  allocatedAmount   Decimal @db.Decimal(18, 4) @default(0)
-  unallocatedAmount Decimal @db.Decimal(18, 4) @default(0)
+  allocatedAmount   Decimal @default(0) @db.Decimal(18, 4)
+  unallocatedAmount Decimal @default(0) @db.Decimal(18, 4)
 
   paymentMethod   SupplierPaymentMethod
   referenceNumber String?
@@ -1074,6 +1153,12 @@ model SupplierPayment {
   cancelledBy User?    @relation("SupplierPaymentCancelledBy", fields: [cancelledById], references: [id])
 
   allocations SupplierPaymentAllocation[]
+
+  /// Which of the shop's money accounts (Cash drawer, SBI, PhonePe...) the money
+  /// went into / came out of. Null on older payments: they used Cash or Bank by
+  /// payment method, as before.
+  moneyAccountId String?
+  moneyAccount   Account? @relation("SupplierPaymentMoneyAccount", fields: [moneyAccountId], references: [id])
 
   @@unique([companyId, paymentNumber])
   @@index([companyId, supplierId, status])
@@ -1171,12 +1256,12 @@ model SalesInvoice {
 
   status SalesInvoiceStatus @default(DRAFT)
 
-  subtotal      Decimal @db.Decimal(18, 4) @default(0)
-  discountTotal Decimal @db.Decimal(18, 4) @default(0)
-  taxTotal      Decimal @db.Decimal(18, 4) @default(0)
-  grandTotal    Decimal @db.Decimal(18, 4) @default(0)
+  subtotal      Decimal @default(0) @db.Decimal(18, 4)
+  discountTotal Decimal @default(0) @db.Decimal(18, 4)
+  taxTotal      Decimal @default(0) @db.Decimal(18, 4)
+  grandTotal    Decimal @default(0) @db.Decimal(18, 4)
   /// Sum of the frozen line COGS. Zero until the invoice is posted.
-  cogsTotal     Decimal @db.Decimal(18, 4) @default(0)
+  cogsTotal     Decimal @default(0) @db.Decimal(18, 4)
 
   /// Customer name as it was when the invoice was raised.
   customerNameSnapshot String
@@ -1192,10 +1277,10 @@ model SalesInvoice {
   placeOfSupplyStateCode String?
   supplyType             SupplyType?
 
-  cgstTotal Decimal @db.Decimal(18, 4) @default(0)
-  sgstTotal Decimal @db.Decimal(18, 4) @default(0)
-  igstTotal Decimal @db.Decimal(18, 4) @default(0)
-  cessTotal Decimal @db.Decimal(18, 4) @default(0)
+  cgstTotal Decimal @default(0) @db.Decimal(18, 4)
+  sgstTotal Decimal @default(0) @db.Decimal(18, 4)
+  igstTotal Decimal @default(0) @db.Decimal(18, 4)
+  cessTotal Decimal @default(0) @db.Decimal(18, 4)
 
   notes String?
 
@@ -1203,9 +1288,9 @@ model SalesInvoice {
   /// limit. An override is a DECISION, not a derived figure - nothing else in
   /// the system records that someone chose to extend credit anyway, so it is
   /// stored rather than inferred.
-  creditLimitOverride       Boolean @default(false)
-  creditLimitOverrideById   String?
-  creditLimitOverrideReason String?
+  creditLimitOverride         Boolean  @default(false)
+  creditLimitOverrideById     String?
+  creditLimitOverrideReason   String?
   /// What the customer already owed at the moment of the override, frozen. The
   /// live balance moves; what was known when the call was made must not.
   creditLimitOverrideExposure Decimal? @db.Decimal(18, 4)
@@ -1219,13 +1304,13 @@ model SalesInvoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company     Company   @relation(fields: [companyId], references: [id])
-  customer    Customer  @relation(fields: [customerId], references: [id])
-  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
-  createdBy   User      @relation("SalesInvoiceCreatedBy", fields: [createdById], references: [id])
-  postedBy    User?     @relation("SalesInvoicePostedBy", fields: [postedById], references: [id])
-  cancelledBy User?     @relation("SalesInvoiceCancelledBy", fields: [cancelledById], references: [id])
-  creditLimitOverrideBy User? @relation("SalesInvoiceCreditOverrideBy", fields: [creditLimitOverrideById], references: [id])
+  company               Company   @relation(fields: [companyId], references: [id])
+  customer              Customer  @relation(fields: [customerId], references: [id])
+  warehouse             Warehouse @relation(fields: [warehouseId], references: [id])
+  createdBy             User      @relation("SalesInvoiceCreatedBy", fields: [createdById], references: [id])
+  postedBy              User?     @relation("SalesInvoicePostedBy", fields: [postedById], references: [id])
+  cancelledBy           User?     @relation("SalesInvoiceCancelledBy", fields: [cancelledById], references: [id])
+  creditLimitOverrideBy User?     @relation("SalesInvoiceCreditOverrideBy", fields: [creditLimitOverrideById], references: [id])
 
   items      SalesInvoiceItem[]
   receivable CustomerReceivable?
@@ -1250,17 +1335,17 @@ model SalesInvoiceItem {
   unitPrice Decimal @db.Decimal(18, 4)
 
   discountType   DiscountType @default(NONE)
-  discountValue  Decimal      @db.Decimal(18, 4) @default(0)
-  discountAmount Decimal      @db.Decimal(18, 4) @default(0)
+  discountValue  Decimal      @default(0) @db.Decimal(18, 4)
+  discountAmount Decimal      @default(0) @db.Decimal(18, 4)
 
-  taxableAmount Decimal @db.Decimal(18, 4) @default(0)
-  taxAmount     Decimal @db.Decimal(18, 4) @default(0)
-  lineTotal     Decimal @db.Decimal(18, 4) @default(0)
+  taxableAmount Decimal @default(0) @db.Decimal(18, 4)
+  taxAmount     Decimal @default(0) @db.Decimal(18, 4)
+  lineTotal     Decimal @default(0) @db.Decimal(18, 4)
 
   /// FROZEN AT POSTING: the moving average cost the stock actually left at.
   /// Later purchases move the average; these numbers must never move with it.
-  cogsUnitCost Decimal @db.Decimal(18, 4) @default(0)
-  cogsAmount   Decimal @db.Decimal(18, 4) @default(0)
+  cogsUnitCost Decimal @default(0) @db.Decimal(18, 4)
+  cogsAmount   Decimal @default(0) @db.Decimal(18, 4)
 
   productNameSnapshot String
   skuSnapshot         String?
@@ -1277,10 +1362,10 @@ model SalesInvoiceItem {
   igstRateSnapshot     Decimal?      @db.Decimal(5, 2)
   cessRateSnapshot     Decimal?      @db.Decimal(5, 2)
   /// The split of taxAmount. Exactly one of (cgst+sgst) or igst is non-zero.
-  cgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  sgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  igstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  cessAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  cgstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  sgstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  igstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  cessAmount           Decimal       @default(0) @db.Decimal(18, 4)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1291,16 +1376,38 @@ model SalesInvoiceItem {
 
   returnItems SalesReturnItem[]
 
+  /// The rack / shelf / fridge this line's stock goes to (purchase) or comes
+  /// from (sale). Optional; without it the product's usual spot is used.
+  storageLocationId String?
+  storageLocation   StorageLocation? @relation(fields: [storageLocationId], references: [id])
+
+  /// The product's selling price when the line was written. If unitPrice
+  /// differs, the price was changed on this bill - and the bill's createdBy says
+  /// by whom. Null on lines from before this was recorded.
+  listPriceSnapshot Decimal? @db.Decimal(18, 4)
+
+  /// For a combo line: what actually left stock, frozen at posting.
+  components SalesInvoiceItemComponent[]
+
+  /// A FREE line (price 0): given away, but it still leaves stock and its cost
+  /// still counts. offerId set = added automatically by a saved offer;
+  /// null = given by hand at the counter (needs the discount permission).
+  isFree  Boolean @default(false)
+  offerId String?
+  offer   Offer?  @relation(fields: [offerId], references: [id])
+
   // One line per product: two lines for the same product would produce two
   // confusing stock movements in one document.
-  @@unique([salesInvoiceId, productId])
+  // One PAID line and at most one FREE line per product: "Buy 1 Soap, get 1
+  // Soap free" needs both on the same bill.
+  @@unique([salesInvoiceId, productId, isFree])
   @@index([salesInvoiceId])
   @@map("sales_invoice_items")
 }
 
 /// One per POSTED sales invoice. Created inside the posting transaction.
 model CustomerReceivable {
-  id             String @id @default(uuid())
+  id             String  @id @default(uuid())
   companyId      String
   customerId     String
   /// Unique: an invoice can raise exactly one receivable, so a repeated post
@@ -1315,8 +1422,8 @@ model CustomerReceivable {
 
   originalAmount    Decimal @db.Decimal(18, 4)
   /// Reduced by posted sales returns against this invoice.
-  creditAmount      Decimal @db.Decimal(18, 4) @default(0)
-  paidAmount        Decimal @db.Decimal(18, 4) @default(0)
+  creditAmount      Decimal @default(0) @db.Decimal(18, 4)
+  paidAmount        Decimal @default(0) @db.Decimal(18, 4)
   /// original - credit - paid, never below zero.
   outstandingAmount Decimal @db.Decimal(18, 4)
 
@@ -1326,8 +1433,8 @@ model CustomerReceivable {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  company      Company      @relation(fields: [companyId], references: [id])
-  customer     Customer     @relation(fields: [customerId], references: [id])
+  company      Company       @relation(fields: [companyId], references: [id])
+  customer     Customer      @relation(fields: [customerId], references: [id])
   salesInvoice SalesInvoice? @relation(fields: [salesInvoiceId], references: [id])
 
   ledgerEntries CustomerLedgerEntry[]
@@ -1349,8 +1456,8 @@ model CustomerLedgerEntry {
   entryDate DateTime @db.Date
 
   /// Exactly one is non-zero. Debit = they owe us more; credit = less.
-  debit  Decimal @db.Decimal(18, 4) @default(0)
-  credit Decimal @db.Decimal(18, 4) @default(0)
+  debit  Decimal @default(0) @db.Decimal(18, 4)
+  credit Decimal @default(0) @db.Decimal(18, 4)
 
   /// SALES_INVOICE | CUSTOMER_PAYMENT, plus the document id.
   referenceType String
@@ -1382,8 +1489,8 @@ model CustomerPayment {
 
   amount            Decimal @db.Decimal(18, 4)
   /// Split of `amount` once posted. Anything unallocated is customer credit.
-  allocatedAmount   Decimal @db.Decimal(18, 4) @default(0)
-  unallocatedAmount Decimal @db.Decimal(18, 4) @default(0)
+  allocatedAmount   Decimal @default(0) @db.Decimal(18, 4)
+  unallocatedAmount Decimal @default(0) @db.Decimal(18, 4)
 
   paymentMethod   CustomerPaymentMethod
   referenceNumber String?
@@ -1407,6 +1514,12 @@ model CustomerPayment {
   cancelledBy User?    @relation("CustomerPaymentCancelledBy", fields: [cancelledById], references: [id])
 
   allocations CustomerPaymentAllocation[]
+
+  /// Which of the shop's money accounts (Cash drawer, SBI, PhonePe...) the money
+  /// went into / came out of. Null on older payments: they used Cash or Bank by
+  /// payment method, as before.
+  moneyAccountId String?
+  moneyAccount   Account? @relation("CustomerPaymentMoneyAccount", fields: [moneyAccountId], references: [id])
 
   @@unique([companyId, paymentNumber])
   @@index([companyId, customerId, status])
@@ -1469,12 +1582,12 @@ model SalesReturn {
   notes  String?
 
   // What the customer is credited, recomputed from the original invoice lines.
-  subtotal      Decimal @db.Decimal(18, 4) @default(0)
-  discountTotal Decimal @db.Decimal(18, 4) @default(0)
-  taxTotal      Decimal @db.Decimal(18, 4) @default(0)
-  grandTotal    Decimal @db.Decimal(18, 4) @default(0)
+  subtotal      Decimal @default(0) @db.Decimal(18, 4)
+  discountTotal Decimal @default(0) @db.Decimal(18, 4)
+  taxTotal      Decimal @default(0) @db.Decimal(18, 4)
+  grandTotal    Decimal @default(0) @db.Decimal(18, 4)
   /// Sum of the frozen COGS put back into stock. Zero until posted.
-  cogsTotal     Decimal @db.Decimal(18, 4) @default(0)
+  cogsTotal     Decimal @default(0) @db.Decimal(18, 4)
 
   customerNameSnapshot String
 
@@ -1489,10 +1602,10 @@ model SalesReturn {
   placeOfSupplyStateCode String?
   supplyType             SupplyType?
 
-  cgstTotal Decimal @db.Decimal(18, 4) @default(0)
-  sgstTotal Decimal @db.Decimal(18, 4) @default(0)
-  igstTotal Decimal @db.Decimal(18, 4) @default(0)
-  cessTotal Decimal @db.Decimal(18, 4) @default(0)
+  cgstTotal Decimal @default(0) @db.Decimal(18, 4)
+  sgstTotal Decimal @default(0) @db.Decimal(18, 4)
+  igstTotal Decimal @default(0) @db.Decimal(18, 4)
+  cessTotal Decimal @default(0) @db.Decimal(18, 4)
 
   createdById   String
   postedById    String?
@@ -1534,15 +1647,15 @@ model SalesReturnItem {
   unitPrice Decimal @db.Decimal(18, 4)
 
   /// Prorated share of the original line's discount.
-  discountAmount Decimal @db.Decimal(18, 4) @default(0)
-  taxableAmount  Decimal @db.Decimal(18, 4) @default(0)
-  taxAmount      Decimal @db.Decimal(18, 4) @default(0)
-  lineTotal      Decimal @db.Decimal(18, 4) @default(0)
+  discountAmount Decimal @default(0) @db.Decimal(18, 4)
+  taxableAmount  Decimal @default(0) @db.Decimal(18, 4)
+  taxAmount      Decimal @default(0) @db.Decimal(18, 4)
+  lineTotal      Decimal @default(0) @db.Decimal(18, 4)
 
   /// The COGS cost frozen on the original sale. Stock re-enters at THIS cost,
   /// never at today's moving average.
-  cogsUnitCost Decimal @db.Decimal(18, 4) @default(0)
-  cogsAmount   Decimal @db.Decimal(18, 4) @default(0)
+  cogsUnitCost Decimal @default(0) @db.Decimal(18, 4)
+  cogsAmount   Decimal @default(0) @db.Decimal(18, 4)
 
   productNameSnapshot String
   skuSnapshot         String?
@@ -1558,10 +1671,10 @@ model SalesReturnItem {
   igstRateSnapshot     Decimal?      @db.Decimal(5, 2)
   cessRateSnapshot     Decimal?      @db.Decimal(5, 2)
   /// The split of taxAmount. Exactly one of (cgst+sgst) or igst is non-zero.
-  cgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  sgstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  igstAmount           Decimal       @db.Decimal(18, 4) @default(0)
-  cessAmount           Decimal       @db.Decimal(18, 4) @default(0)
+  cgstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  sgstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  igstAmount           Decimal       @default(0) @db.Decimal(18, 4)
+  cessAmount           Decimal       @default(0) @db.Decimal(18, 4)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1634,6 +1747,14 @@ model Account {
 
   description String?
 
+  /// For a money account (cash / bank / UPI): reference details shown to the
+  /// shop. Informational only - nothing in the books depends on them.
+  bankName      String?
+  accountNumber String?
+  ifsc          String?
+  upiId         String?
+  holderName    String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1641,11 +1762,14 @@ model Account {
   parent   Account?  @relation("AccountParent", fields: [parentId], references: [id])
   children Account[] @relation("AccountParent")
 
-  journalLines      JournalLine[]
+  journalLines        JournalLine[]
   /// Expenses filed under this account as their category.
-  expenseCategories Expense[]     @relation("ExpenseCategoryAccount")
+  expenseCategories   Expense[]            @relation("ExpenseCategoryAccount")
   /// Expenses paid out of this account.
-  expensePayments   Expense[]     @relation("ExpensePaymentAccount")
+  expensePayments     Expense[]            @relation("ExpensePaymentAccount")
+  expensePaymentParts ExpensePaymentPart[]
+  customerPaymentsIn  CustomerPayment[]    @relation("CustomerPaymentMoneyAccount")
+  supplierPaymentsOut SupplierPayment[]    @relation("SupplierPaymentMoneyAccount")
 
   // Codes are unique per company, never globally: two companies may both use 1000.
   @@unique([companyId, code])
@@ -1681,9 +1805,9 @@ model AccountingPeriod {
 
   status AccountingPeriodStatus @default(OPEN)
 
-  createdById String
-  closedById  String?
-  closedAt    DateTime?
+  createdById  String
+  closedById   String?
+  closedAt     DateTime?
   /// Why the period was reopened, if it ever was. Reopening is deliberate and
   /// attributed rather than silent.
   reopenedById String?
@@ -1771,9 +1895,9 @@ model Subscription {
   /// The plan's terms AT THE MOMENT OF SALE. The plan's price may change next
   /// month; what this shop agreed to must not. Same reasoning as the name and
   /// price snapshots on every document in the accounting modules.
-  planNameSnapshot     String
-  priceSnapshot        Decimal      @db.Decimal(18, 4)
-  currencySnapshot     String       @default("INR")
+  planNameSnapshot      String
+  priceSnapshot         Decimal      @db.Decimal(18, 4)
+  currencySnapshot      String       @default("INR")
   durationValueSnapshot Int
   durationUnitSnapshot  DurationUnit
 
@@ -1791,8 +1915,8 @@ model Subscription {
   /// ADMIN_GRANT - this is the audit trail for a subscription nobody paid for.
   grantReason String?
 
-  cancelledAt   DateTime?
-  cancelReason  String?
+  cancelledAt  DateTime?
+  cancelReason String?
 
   createdById String
   createdAt   DateTime @default(now())
@@ -1891,11 +2015,11 @@ model Bill {
 
   /// Exactly what the extractor returned, kept verbatim for audit even after
   /// the user corrects it. Never posted from directly.
-  extraction       Json?
-  extractionModel  String?
-  extractedAt      DateTime?
+  extraction      Json?
+  extractionModel String?
+  extractedAt     DateTime?
   /// Why extraction failed, when it did. The user then types the bill by hand.
-  extractionError  String?
+  extractionError String?
 
   /// What the user confirmed, after any corrections. This is what gets posted.
   reviewedData Json?
@@ -1928,7 +2052,6 @@ model Bill {
   @@map("bills")
 }
 
-
 model JournalEntry {
   id            String @id @default(uuid())
   companyId     String
@@ -1950,8 +2073,8 @@ model JournalEntry {
 
   /// Sum of the lines, stored once at posting so a listing does not have to
   /// re-aggregate. Immutable, like the lines themselves.
-  totalDebit  Decimal @db.Decimal(18, 4) @default(0)
-  totalCredit Decimal @db.Decimal(18, 4) @default(0)
+  totalDebit  Decimal @default(0) @db.Decimal(18, 4)
+  totalCredit Decimal @default(0) @db.Decimal(18, 4)
 
   /// Set on a reversing entry, pointing at the entry it reverses.
   reversalOfId String?
@@ -1992,8 +2115,8 @@ model JournalLine {
 
   description String?
 
-  debit  Decimal @db.Decimal(18, 4) @default(0)
-  credit Decimal @db.Decimal(18, 4) @default(0)
+  debit  Decimal @default(0) @db.Decimal(18, 4)
+  credit Decimal @default(0) @db.Decimal(18, 4)
 
   /// Denormalised from the entry so account ledgers and the trial balance filter
   /// by date without joining. Never changes: the entry's date never changes.
@@ -2189,10 +2312,146 @@ model Expense {
   cancelledBy    User?     @relation("ExpenseCancelledBy", fields: [cancelledById], references: [id])
   reversedBy     User?     @relation("ExpenseReversedBy", fields: [reversedById], references: [id])
 
+  /// An expense paid from more than one account (e.g. 1,000 cash + 500 UPI).
+  /// Empty for an expense paid from one account (paymentAccountId).
+  paymentParts ExpensePaymentPart[]
+
   @@unique([companyId, expenseNumber])
   @@index([companyId, status])
   @@index([companyId, expenseDate])
   @@index([companyId, expenseAccountId])
   @@index([companyId, supplierId])
   @@map("expenses")
+}
+
+/// What a share link opens.
+enum ShareLinkKind {
+  /// One sales invoice (optionally with the customer's whole log book).
+  INVOICE
+  /// A customer's log book: every invoice, receipt and return, and the balance.
+  CUSTOMER_ACCOUNT
+  /// A supplier's log book, from the shop's side.
+  SUPPLIER_ACCOUNT
+}
+
+/// A link the shop sends to a customer or supplier so they can see their bill
+/// and their account history WITHOUT logging in.
+///
+/// The token is 32 random bytes (unguessable); it is kept so the shop can copy
+/// the link again later. A link works until the shop stops sharing it
+/// (revokedAt). Read-only by construction: the public endpoint can only read,
+/// and only the one invoice / one party the link names.
+model ShareLink {
+  id        String        @id @default(uuid())
+  companyId String
+  kind      ShareLinkKind
+  token     String        @unique
+
+  salesInvoiceId String?
+  customerId     String?
+  supplierId     String?
+  /// For an INVOICE link: also show the customer's whole log book.
+  includeAccount Boolean @default(false)
+
+  createdById String
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+  revokedById String?
+
+  /// When the recipient last opened it, and how often. Seen-tracking for the shop.
+  viewCount     Int       @default(0)
+  firstViewedAt DateTime?
+  lastViewedAt  DateTime?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, salesInvoiceId])
+  @@index([companyId, customerId])
+  @@index([companyId, supplierId])
+  @@map("share_links")
+}
+
+/// One content of a combo: "2 x Oil 1L" in "Diwali Pack".
+model ComboComponent {
+  id                 String  @id @default(uuid())
+  companyId          String
+  comboProductId     String
+  componentProductId String
+  /// How many of the content go into ONE combo.
+  quantity           Decimal @db.Decimal(18, 6)
+
+  combo     Product @relation("ComboOf", fields: [comboProductId], references: [id], onDelete: Cascade)
+  component Product @relation("ComboContent", fields: [componentProductId], references: [id])
+
+  @@unique([comboProductId, componentProductId])
+  @@index([companyId])
+  @@map("combo_components")
+}
+
+/// What a combo line on a POSTED sale took out of stock, frozen at posting so
+/// editing the combo later never changes an old bill, and so a return can put
+/// back exactly what left, at the cost it left at.
+model SalesInvoiceItemComponent {
+  id                  String  @id @default(uuid())
+  companyId           String
+  salesInvoiceItemId  String
+  productId           String
+  productNameSnapshot String
+  /// Per ONE combo, and in total for the line.
+  quantityPerUnit     Decimal @db.Decimal(18, 6)
+  quantity            Decimal @db.Decimal(18, 6)
+  cogsUnitCost        Decimal @db.Decimal(18, 4)
+  cogsAmount          Decimal @db.Decimal(18, 4)
+
+  salesInvoiceItem SalesInvoiceItem @relation(fields: [salesInvoiceItemId], references: [id], onDelete: Cascade)
+  product          Product          @relation(fields: [productId], references: [id])
+
+  @@unique([salesInvoiceItemId, productId])
+  @@index([companyId])
+  @@map("sales_invoice_item_components")
+}
+
+/// A saved offer: "Buy {buyQuantity} {buyProduct}, get {freeQuantity}
+/// {freeProduct} free". Same product (B1G1), a different one, or any ratio.
+/// Applied automatically when a sale is saved, inside its validity window. The
+/// free item leaves stock like any other line; only its price is zero.
+model Offer {
+  id            String    @id @default(uuid())
+  companyId     String
+  name          String
+  buyProductId  String
+  buyQuantity   Decimal   @db.Decimal(18, 6)
+  freeProductId String
+  freeQuantity  Decimal   @db.Decimal(18, 6)
+  /// Inclusive business dates; null = no limit.
+  startDate     DateTime? @db.Date
+  endDate       DateTime? @db.Date
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company     Company            @relation(fields: [companyId], references: [id])
+  buyProduct  Product            @relation("OfferBuy", fields: [buyProductId], references: [id])
+  freeProduct Product            @relation("OfferFree", fields: [freeProductId], references: [id])
+  saleLines   SalesInvoiceItem[]
+
+  @@index([companyId, buyProductId])
+  @@map("offers")
+}
+
+/// One part of a split expense payment: how much came out of which account.
+model ExpensePaymentPart {
+  id                  String  @id @default(uuid())
+  companyId           String
+  expenseId           String
+  accountId           String
+  accountNameSnapshot String
+  amount              Decimal @db.Decimal(18, 4)
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@unique([expenseId, accountId])
+  @@index([companyId])
+  @@map("expense_payment_parts")
 }

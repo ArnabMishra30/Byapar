@@ -26,6 +26,8 @@ export interface BillLine {
   label: string;
   quantity: string;
   unitPrice: string;
+  /** Given free by hand: price 0, stock still goes out. */
+  isFree?: boolean;
 }
 
 export function BillItems({
@@ -33,6 +35,7 @@ export function BillItems({
   errors,
   disabled,
   onAdd,
+  canGiveFree = false,
   onChange,
   onRemove,
 }: {
@@ -40,6 +43,8 @@ export function BillItems({
   errors: Record<string, string>;
   disabled?: boolean;
   onAdd: (productId: string, label: string) => void;
+  /** Show the "give free" switch (needs the discount permission). */
+  canGiveFree?: boolean;
   onChange: (key: string, patch: Partial<BillLine>) => void;
   onRemove: (key: string) => void;
 }) {
@@ -125,8 +130,8 @@ export function BillItems({
                   <Input
                     id={`price-${line.key}`}
                     inputMode="decimal"
-                    value={line.unitPrice}
-                    disabled={disabled}
+                    value={line.isFree ? "FREE" : line.unitPrice}
+                    disabled={disabled || line.isFree}
                     placeholder="0.00"
                     onChange={(event) => onChange(line.key, { unitPrice: event.target.value })}
                     className={cn("h-11", errors[`price-${line.key}`] && "border-destructive")}
@@ -136,6 +141,18 @@ export function BillItems({
                   ) : null}
                 </div>
               </div>
+              {canGiveFree ? (
+                <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-primary"
+                    checked={Boolean(line.isFree)}
+                    disabled={disabled}
+                    onChange={(event) => onChange(line.key, { isFree: event.target.checked })}
+                  />
+                  Give this free (stock still goes out)
+                </label>
+              ) : null}
             </li>
           ))}
         </ul>

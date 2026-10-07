@@ -108,7 +108,7 @@ export const DOC_CONFIG: Record<DocKind, DocConfig> = {
     paymentCapability: "money.receive",
     returnHref: (docId) => `${ROUTES.newSalesReturn}?salesInvoiceId=${encodeURIComponent(docId)}`,
     // Drafting a sales return is open to staff; posting it is admin-only.
-    returnCapability: "sales.draft",
+    returnCapability: "salesReturns.draft",
     prefillParam: "customerId",
     partyKind: "customer",
     partyLabel: "Customer",

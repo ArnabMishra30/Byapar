@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as salesController from './sales.controller.js';
 import {
   createSaleSchema,
@@ -21,10 +22,11 @@ salesRoutes.use(requireAuth);
 salesRoutes.get('/', validate({ query: listSalesQuerySchema }), salesController.list);
 salesRoutes.get('/:id', validate({ params: idParamSchema }), salesController.get);
 
-salesRoutes.post('/', validate({ body: createSaleSchema }), salesController.create);
+salesRoutes.post('/', requireShopPermission('SALES_CREATE', 'SALES_POST'), validate({ body: createSaleSchema }), salesController.create);
 
 salesRoutes.patch(
   '/:id',
+  requireShopPermission('SALES_CREATE', 'SALES_POST'),
   validate({ params: idParamSchema, body: updateSaleSchema }),
   salesController.update,
 );
@@ -34,14 +36,17 @@ salesRoutes.patch(
 // introducing a permission of its own.
 salesRoutes.post(
   '/:id/post',
-  requireRole('ADMIN'),
+  requireShopPermission('SALES_POST'),
   validate({ params: idParamSchema, body: postSaleSchema }),
   salesController.post,
 );
 
 salesRoutes.post(
   '/:id/cancel',
-  requireRole('ADMIN'),
+  // Cancelling a draft: anyone who may complete sales (a cashier, for their own
+  // drafts) or undo them. A completed sale is reversed with a sales return.
+  // Old staff accounts (drafts only) still cannot cancel, as before.
+  requireShopPermission('SALES_POST', 'SALES_CANCEL'),
   validate({ params: idParamSchema }),
   salesController.cancel,
 );

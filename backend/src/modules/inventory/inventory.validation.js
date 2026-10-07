@@ -26,6 +26,8 @@ const notesSchema = z.string().trim().max(500, 'Notes must be at most 500 charac
 
 const productIdSchema = z.string({ required_error: 'Product is required' }).uuid('Invalid productId');
 const warehouseIdSchema = z.string({ required_error: 'Warehouse is required' }).uuid('Invalid warehouseId');
+// The rack, drawer or fridge. Optional; defaults to the product's usual spot.
+const storageLocationIdSchema = z.string().uuid('Invalid storageLocationId').nullable().optional();
 
 export const openingStockSchema = z.object({
   productId: productIdSchema,
@@ -34,6 +36,7 @@ export const openingStockSchema = z.object({
   // Zero is allowed: stock can genuinely have been free or written down.
   unitCost: moneySchema('Unit cost'),
   notes: notesSchema,
+  storageLocationId: storageLocationIdSchema,
 });
 
 export const adjustmentSchema = z
@@ -44,6 +47,7 @@ export const adjustmentSchema = z
     quantity: positiveQuantitySchema,
     unitCost: moneySchema('Unit cost').optional(),
     notes: notesSchema,
+    storageLocationId: storageLocationIdSchema,
   })
   .superRefine((data, ctx) => {
     // Incoming stock must state what it cost, otherwise the average is meaningless.
@@ -78,6 +82,7 @@ export const balanceParamsSchema = z.object({
 export const listMovementsQuerySchema = paginationQuerySchema.extend({
   productId: optionalIdQuerySchema('productId'),
   warehouseId: optionalIdQuerySchema('warehouseId'),
+  storageLocationId: optionalIdQuerySchema('storageLocationId'),
   type: movementTypeSchema.optional(),
   fromDate: z.coerce.date({ errorMap: () => ({ message: 'fromDate must be a valid date' }) }).optional(),
   toDate: z.coerce.date({ errorMap: () => ({ message: 'toDate must be a valid date' }) }).optional(),

@@ -10,7 +10,7 @@ Context synced at: f2c3354 (2026-09-30; party master added 2026-09-30, uncommitt
 
 ## Commands
 - Root forwards via `--prefix`: `npm run dev:backend | dev:admin | dev:business`, `npm test` (all three), `build:admin`, `build:business`
-- backend: `dev` (node --watch), `test` (vitest + supertest, real test DB from `backend/.env.test`, serial, 20s timeout), `prisma:generate|migrate|deploy|studio`, `prisma:seed`, `seed:platform[:prod]`, `seed:demo`, `seed:demo:parties` (demo parties + posted docs, local DB only), `defaults:ensure[:prod]`, `start:render` (= `prisma migrate deploy && node src/server.js`)
+- backend: `dev` (node --watch), `test` (vitest + supertest, real test DB from `backend/.env.test`, serial, 20s timeout), `prisma:generate|migrate|deploy|studio`, `prisma:seed`, `seed:platform[:prod]`, `seed:demo`, `seed:demo:parties` (demo parties + posted docs, local DB only), `seed:demo:locations` (starter racks + product spots), `seed:demo:shares` (prints 3 public links), `seed:demo:staff` (cashier1/2, store, accounts @demoshop.test), `seed:demo:combos` (Diwali Pack + one sale at changed price), `seed:demo:offers` (2 offers + a B2G1 sale), `seed:demo:money` (3 money accounts, transfer, split expense), `defaults:ensure[:prod]`, `start:render` (= `prisma migrate deploy && node src/server.js`)
 - frontend / business-web: `dev`, `build`, `lint`, `test` (vitest+jsdom); business-web also `typecheck`
 
 ## Directory map
@@ -30,6 +30,12 @@ Context synced at: f2c3354 (2026-09-30; party master added 2026-09-30, uncommitt
 - Masters: categories, units, taxes, warehouses, products, suppliers, customers
 - parties: `Party` = person/business behind a Customer and/or Supplier (0..1 each via `partyId`). Master data only, no JE. `party.service.js` copies name/phone/email/address/gstin/stateCode to both sides under a row lock; customer/supplier create+PATCH go through it. Balances read from existing sub-ledgers; receivable/payable never netted. `party-matching.js` = duplicate rules (GSTIN/mobile/email/name, never auto-merge)
 - inventory: `InventoryBalance` + immutable `StockMovement` ledger, moving weighted-average cost, row locks via `$queryRaw`
+- share-links: `ShareLink` (random token, INVOICE[+includeAccount] | CUSTOMER_ACCOUNT | SUPPLIER_ACCOUNT, revokedAt, viewCount/lastViewedAt). Owner `/share-links` (ADMIN create/revoke). Public no-auth `/public/share/:token[/invoices/:id]` reuses statement.service; allow-listed fields only. business-web public page `/s/[token]` (`features/share/`), `ShareButton` on sale detail, party profile, customer/supplier detail
+- staff RBAC: `users/shop-permissions.js` (permission keys, role templates, `requireShopPermission`, `ownRecordsFilter`, LEGACY_STAFF for staff with null `shopRole`). User.shopRole + permissions; `/users/roles`; `/reports/billers`, `/my-day`. Cashiers see only own sales/receipts/returns. Frontend `can(role, cap, user.shopPermissions)`, NavItem.requires, Staff page `staff-access-fields.tsx`, Home shows `MyDayHome` without reports.read
+- combos: Product.isCombo/isAdHoc + `ComboComponent`; `products/combo.service.js`; sale post `postComboLine` moves each content out of stock and freezes `SalesInvoiceItemComponent`; returns put contents back at frozen cost; combos can't be bought/adjusted/nested. Sale lines store `listPriceSnapshot` → `priceChanged`. FE: `features/products/combo-builder.tsx` (Make a combo in sale form + Quick Billing; product form toggle), EntitySelect `productKind="ITEM"` for purchases/stock
+- offers: `offers/offer.service.js` (Offer model; `applyOffers` recomputes offer free lines on every sale save; `report`). Sale lines `isFree`/`offerId`, unique (invoice, product, isFree). Manual free needs SALES_DISCOUNT. FE `/shop/stock/offers`, `/shop/reports/offers`, free switch in sale form + Quick Billing
+- money-accounts: extra cash/bank/UPI accounts = ledger ASSET accounts under Cash 1000 / Bank 1010 (`1000-NN`/`1010-NN`); `money-account.service.js` (list w/ balances, create w/ opening JE, transfer = MONEY_TRANSFER JE, reverse). Payments `moneyAccountId`; expenses `paymentParts` split (`ExpensePaymentPart`). FE `MoneyAccountSelect`, Settings `money-accounts-section.tsx`, Cash & Bank `transfer-section.tsx`
+- storage-locations: `StorageLocation` (rack/shelf/drawer/fridge… per warehouse). TAG only, no quantities. Product.storageLocationId = usual spot; StockMovement.storageLocationId set in `applyMovementWithinTransaction` (explicit, else product's spot if same warehouse). Purchase/sale lines take optional `storageLocationId` (migration `20261006120000_line_storage_locations`); bill review has a per-line rack picker and `newProducts[].storageLocationId` sets the usual spot; after a sale bill posts the review screen opens the Share dialog. Settings card `features/settings/locations-section.tsx`, picker `features/stock/location-select.tsx`
 - Purchasing: purchases (`purchase.calculator.js`), purchase-returns, supplier-payables (+ledger), supplier-payments (allocations)
 - Selling: sales (`sales.calculator.js`), sales-returns, customer-receivables (+ledger), customer-payments
 - expenses (one balanced JE, no GST)
@@ -54,7 +60,7 @@ Context synced at: f2c3354 (2026-09-30; party master added 2026-09-30, uncommitt
 - Document lifecycle: DRAFT → POSTED (immutable) → CANCELLED / returned
 
 ## API surface (`/api/v1`, mounted in `backend/src/app.js`)
-- Public: `GET /health`, `POST /auth/login|refresh|logout`, `GET /public/plans`. Everything else `router.use(requireAuth)`.
+- Public: `GET /health`, `POST /auth/login|refresh|logout`, `GET /public/plans`, `GET /public/share/:token`. Everything else `router.use(requireAuth)`.
 - auth, users, companies, company-settings, masters, inventory
 - parties: list/summary/possible-matches/get, customer-ledger, supplier-ledger, statement; POST /, PATCH /:id, /:id/status, POST /:id/relationships, /:id/link (ADMIN writes; reads ADMIN+STAFF, platform users 403). Create refuses possible duplicates (409 PARTY_POSSIBLE_DUPLICATE) unless allowDuplicate
 - purchases, purchase-returns, supplier-payables, supplier-payments (ledger/credit also on `/suppliers`)

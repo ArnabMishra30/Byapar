@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/ui/select-native";
 import { stripBodyPrefix } from "@/lib/utils";
 import { useWarehouses } from "./movement-list";
+import { LocationSelect } from "./location-select";
 
 /** Everything a stock write can change, invalidated together. */
 export function invalidateStock(queryClient: ReturnType<typeof useQueryClient>) {
@@ -51,6 +52,9 @@ export function OpeningStockDialog({
   const [quantity, setQuantity] = React.useState("");
   const [unitCost, setUnitCost] = React.useState("");
   const [notes, setNotes] = React.useState("");
+  const [storageLocationId, setStorageLocationId] = React.useState("");
+  // A location belongs to one store, so changing the store clears it.
+  React.useEffect(() => setStorageLocationId(""), [warehouseId]);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
 
   // Fresh form on every open, prefilled from the product when there is one.
@@ -76,6 +80,7 @@ export function OpeningStockDialog({
         quantity: quantity.trim(),
         unitCost: unitCost.trim() || "0",
         notes: notes.trim() || undefined,
+        ...(storageLocationId ? { storageLocationId } : {}),
       }),
     onSuccess: () => {
       toast.success("Opening stock saved");
@@ -120,6 +125,7 @@ export function OpeningStockDialog({
           <Field label="Product" required error={errors.productId}>
             <EntitySelect
               kind="product"
+                productKind="ITEM"
               value={product?.id}
               valueLabel={product?.name}
               disabled={Boolean(initialProduct)}
@@ -141,6 +147,22 @@ export function OpeningStockDialog({
               ))}
             </NativeSelect>
           </Field>
+          {warehouseId ? (
+          <Field
+            label="Rack / shelf"
+            htmlFor="os-location"
+            hint="Optional. Left blank, the product's usual spot in this store is used."
+            error={errors.storageLocationId}
+          >
+            <LocationSelect
+              id="os-location"
+              warehouseId={warehouseId}
+              value={storageLocationId}
+              onChange={setStorageLocationId}
+              emptyLabel="Product's usual spot"
+            />
+          </Field>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Quantity" htmlFor="os-qty" required error={errors.quantity}>
               <Input

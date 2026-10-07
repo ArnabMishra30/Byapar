@@ -35,6 +35,19 @@ const FIELDS = {
   },
   taxClassificationId: true,
   taxClassification: { select: { id: true, code: true, kind: true, isActive: true } },
+  storageLocationId: true,
+  storageLocation: {
+    select: { id: true, name: true, code: true, type: true, warehouse: { select: { id: true, name: true } } },
+  },
+  isCombo: true,
+  isAdHoc: true,
+  comboComponents: {
+    select: {
+      quantity: true,
+      component: { select: { id: true, name: true, sku: true, isActive: true, unit: { select: { shortCode: true } } } },
+    },
+    orderBy: { component: { name: 'asc' } },
+  },
 };
 
 export function findByIdAndCompany(id, companyId) {
@@ -69,7 +82,9 @@ export function findByBarcodeAndCompany(barcode, companyId) {
  */
 export function findAllForMatching(companyId) {
   return prisma.product.findMany({
-    where: { companyId, isActive: true },
+    // Saved combos can be matched like any product; one-off combos made on a
+    // single bill cannot.
+    where: { companyId, isActive: true, isAdHoc: false },
     select: { id: true, name: true, sku: true, barcode: true },
     orderBy: { name: 'asc' },
     take: 2000,
@@ -82,9 +97,12 @@ export function findAllForMatching(companyId) {
  */
 export async function findManyByCompany(
   companyId,
-  { skip, take, search, categoryId, unitId, taxId, isActive },
+  { skip, take, search, categoryId, unitId, taxId, isActive, kind },
 ) {
-  const where = { companyId };
+  // A combo made on the spot for one bill never shows up in lists or pickers.
+  const where = { companyId, isAdHoc: false };
+  if (kind === 'COMBO') where.isCombo = true;
+  if (kind === 'ITEM') where.isCombo = false;
 
   if (search) {
     where.OR = [

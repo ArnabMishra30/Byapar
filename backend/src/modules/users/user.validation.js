@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { paginationQuerySchema } from '../../utils/pagination.js';
+import { SHOP_PERMISSION_KEYS, SHOP_ROLE_KEYS } from './shop-permissions.js';
 
 // Backend validation is mandatory. Never rely on frontend validation.
 
@@ -22,6 +23,14 @@ const nameSchema = z
   .trim()
   .min(2, 'Name must be at least 2 characters')
   .max(100, 'Name must be at most 100 characters');
+
+// What a STAFF member may do (see users/shop-permissions.js). Ignored for ADMIN.
+const shopRoleSchema = z.enum(SHOP_ROLE_KEYS, {
+  errorMap: () => ({ message: `Role must be one of ${SHOP_ROLE_KEYS.join(', ')}` }),
+});
+const shopPermissionListSchema = z
+  .array(z.enum(SHOP_PERMISSION_KEYS, { errorMap: () => ({ message: 'Unknown permission' }) }))
+  .max(SHOP_PERMISSION_KEYS.length);
 
 const roleSchema = z.enum(['ADMIN', 'STAFF'], {
   errorMap: () => ({ message: 'Role must be ADMIN or STAFF' }),
@@ -48,12 +57,16 @@ export const createUserSchema = z.object({
   // companyId is deliberately NOT accepted here: it always comes from the
   // authenticated admin. A client cannot create a user in another company.
   role: roleSchema.default('STAFF'),
+  shopRole: shopRoleSchema.optional(),
+  permissions: shopPermissionListSchema.optional(),
 });
 
 export const updateUserSchema = z
   .object({
     name: nameSchema.optional(),
     role: roleSchema.optional(),
+    shopRole: shopRoleSchema.optional(),
+    permissions: shopPermissionListSchema.optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'Provide at least one field to update',

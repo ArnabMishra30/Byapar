@@ -41,6 +41,19 @@ const expenseBodySchema = z.object({
   // which is what a business with one of each will always want.
   paymentAccountId: z.string().uuid('Invalid payment account').nullable().optional(),
 
+  // Paid from more than one account: 1,000 cash + 500 UPI. The parts must add
+  // up to the amount; paymentAccountId is then ignored.
+  paymentParts: z
+    .array(
+      z.object({
+        accountId: z.string().uuid('Invalid account'),
+        amount: moneySchema('Part amount', { decimals: 2 }),
+      }),
+    )
+    .min(2, 'A split needs at least two accounts')
+    .max(5)
+    .optional(),
+
   // Optional and informational: an expense raises no payable.
   supplierId: z.string().uuid('Invalid supplierId').nullable().optional(),
 

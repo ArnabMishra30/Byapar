@@ -28,6 +28,7 @@ export async function resetDatabase() {
   await prisma.customerLedgerEntry.deleteMany();
   await prisma.customerPayment.deleteMany();
   await prisma.customerReceivable.deleteMany();
+  await prisma.salesInvoiceItemComponent.deleteMany();
   await prisma.salesInvoiceItem.deleteMany();
   await prisma.salesInvoice.deleteMany();
   // Then the supplier sub-ledger: it references purchases and payables.
@@ -45,12 +46,17 @@ export async function resetDatabase() {
   // Then inventory: movements and balances reference products and warehouses.
   await prisma.stockMovement.deleteMany();
   await prisma.inventoryBalance.deleteMany();
+  await prisma.comboComponent.deleteMany();
+  await prisma.offer.deleteMany();
   await prisma.product.deleteMany();
   // Tax classifications reference taxes and are referenced by products.
   await prisma.taxClassification.deleteMany();
   await prisma.category.deleteMany();
   await prisma.unit.deleteMany();
   await prisma.tax.deleteMany();
+  // Storage locations are referenced by products and movements (both gone by
+  // now) and reference warehouses.
+  await prisma.storageLocation.deleteMany();
   await prisma.warehouse.deleteMany();
   await prisma.supplier.deleteMany();
   await prisma.customer.deleteMany();
@@ -60,6 +66,7 @@ export async function resetDatabase() {
   // The SaaS layer. Bills reference companies and users; payments reference
   // subscriptions; subscriptions reference companies, plans and users. All of it
   // therefore goes before users and companies.
+  await prisma.shareLink.deleteMany();
   await prisma.bill.deleteMany();
   await prisma.subscriptionPayment.deleteMany();
   await prisma.subscription.deleteMany();

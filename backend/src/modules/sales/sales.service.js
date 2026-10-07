@@ -1,6 +1,9 @@
 import { ApiError } from '../../utils/api-error.js';
+import * as offerService from '../offers/offer.service.js';
+import { ownRecordsFilter, hasShopPermission } from '../users/shop-permissions.js';
+import { assertLocationInWarehouse } from '../storage-locations/storage-location.service.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
-import { add, round, toDecimal, toMoneyString, isGreaterThan } from '../../utils/money.js';
+import { add, multiply, round, toDecimal, toMoneyString, isGreaterThan } from '../../utils/money.js';
 import { withRetryableTransaction } from '../../config/transaction.js';
 import { calculateSalesLine, calculateSalesTotals, calculateCogs } from './sales.calculator.js';
 import * as salesRepository from './sales.repository.js';
@@ -49,6 +52,7 @@ function toPublicItem(item) {
   return {
     id: item.id,
     lineNumber: item.lineNumber,
+    storageLocationId: item.storageLocationId ?? null,
     productId: item.productId,
     productName: item.productNameSnapshot,
     sku: item.skuSnapshot,
@@ -67,6 +71,21 @@ function toPublicItem(item) {
     // Zero until the invoice is posted.
     cogsUnitCost: toMoneyString(item.cogsUnitCost, 4),
     cogsAmount: toMoneyString(item.cogsAmount, 2),
+    // Set when the line went out at a price other than the product's own.
+    listPrice: item.listPriceSnapshot == null ? null : toMoneyString(item.listPriceSnapshot, 2),
+    // A free line, and whether a saved offer gave it.
+    isFree: Boolean(item.isFree),
+    offer: item.offer ? { id: item.offer.id, name: item.offer.name } : null,
+    priceChanged:
+      !item.isFree &&
+      item.listPriceSnapshot != null && !toDecimal(item.listPriceSnapshot).equals(toDecimal(item.unitPrice).toDecimalPlaces(MONEY_DP)),
+    // What a combo line took out of stock (empty for ordinary lines and drafts).
+    components: (item.components ?? []).map((c) => ({
+      productId: c.productId,
+      name: c.productNameSnapshot,
+      quantityPerUnit: toMoneyString(c.quantityPerUnit, 3),
+      quantity: toMoneyString(c.quantity, 3),
+    })),
     hsn: item.hsnCodeSnapshot,
     taxTreatment: item.taxTreatmentSnapshot,
     cgstRate: item.cgstRateSnapshot === null ? null : toMoneyString(item.cgstRateSnapshot, 2),
@@ -141,6 +160,35 @@ export function toPublicSale(sale) {
  * Runs at draft creation, at draft update AND again at posting, because a
  * customer, warehouse, product or tax can be deactivated in between.
  */
+/**
+ * A discount, or a price below the product's selling price, needs the
+ * SALES_DISCOUNT permission. The owner always has it; a cashier only if given.
+ */
+function assertDiscountAllowed(currentUser, resolvedItems) {
+  if (hasShopPermission(currentUser, 'SALES_DISCOUNT')) return;
+  for (const { input, product, index } of resolvedItems) {
+    // A free item from a saved offer was the owner's decision, not the cashier's.
+    if (input.isFree && input.offerId) continue;
+    if (input.isFree) {
+      throw ApiError.business(
+        403,
+        'DISCOUNT_NOT_ALLOWED',
+        `Item ${index + 1}: you are not allowed to give items free. Ask the owner.`,
+      );
+    }
+    const discounted = input.discountType && input.discountType !== 'NONE' && Number(input.discountValue ?? 0) > 0;
+    const listPrice = toDecimal(product.sellingPrice ?? 0);
+    const underPriced = listPrice.greaterThan(0) && toDecimal(input.unitPrice).lessThan(listPrice);
+    if (discounted || underPriced) {
+      throw ApiError.business(
+        403,
+        'DISCOUNT_NOT_ALLOWED',
+        `Item ${index + 1}: you are not allowed to give a discount or sell below the price. Ask the owner.`,
+      );
+    }
+  }
+}
+
 // --- credit terms ----------------------------------------------------------
 
 /**
@@ -208,6 +256,11 @@ async function loadAndValidateReferences(companyId, input) {
     // invoice's own date rather than against today.
     assertLineTaxUsable(product, tax, input.invoiceDate, `Item ${index + 1}`);
 
+    // A rack chosen for the line must be one of this store's own.
+    if (item.storageLocationId) {
+      await assertLocationInWarehouse(companyId, input.warehouseId, item.storageLocationId);
+    }
+
     resolvedItems.push({ input: item, product, tax, index });
   }
 
@@ -221,15 +274,18 @@ async function loadAndValidateReferences(companyId, input) {
  *   whether each line is taxed as CGST+SGST or as IGST.
  */
 function buildItemRows(resolvedItems, gstContext) {
-  const calculated = resolvedItems.map(({ input, product, tax, index }) => {
+  const calculated = resolvedItems.map(({ input, product, tax: lineTax, index }) => {
+    const tax = input.isFree ? null : lineTax;
     const taxRate = tax ? tax.rate.toString() : null;
     const gst = buildLineGst(tax, gstContext);
 
+    // A free line is free: price 0, no discount, no tax.
+    const free = Boolean(input.isFree);
     const amounts = calculateSalesLine({
       quantity: input.quantity,
-      unitPrice: input.unitPrice,
-      discountType: input.discountType,
-      discountValue: input.discountValue,
+      unitPrice: free ? '0' : input.unitPrice,
+      discountType: free ? 'NONE' : input.discountType,
+      discountValue: free ? undefined : input.discountValue,
       taxRate,
       index,
       gst,
@@ -239,11 +295,16 @@ function buildItemRows(resolvedItems, gstContext) {
       row: {
         lineNumber: index + 1,
         productId: product.id,
+        storageLocationId: input.storageLocationId ?? null,
         taxId: tax ? tax.id : null,
         quantity: round(input.quantity, QUANTITY_DP),
-        unitPrice: round(input.unitPrice, MONEY_DP),
-        discountType: input.discountType,
-        discountValue: round(input.discountValue ?? 0, MONEY_DP),
+        unitPrice: free ? 0 : round(input.unitPrice, MONEY_DP),
+        isFree: free,
+        offerId: free ? input.offerId ?? null : null,
+        // The product's own price at the time, so a changed price is visible later.
+        listPriceSnapshot: round(product.sellingPrice ?? 0, MONEY_DP),
+        discountType: free ? 'NONE' : input.discountType,
+        discountValue: free ? 0 : round(input.discountValue ?? 0, MONEY_DP),
         discountAmount: amounts.discountAmount,
         taxableAmount: amounts.taxableAmount,
         taxAmount: amounts.taxAmount,
@@ -281,13 +342,97 @@ function assertIsDraft(sale) {
   }
 }
 
+
+// --- combos ------------------------------------------------------------------
+
+/** productId -> contents, for the combo products among these lines. */
+async function loadComboContents(tx, companyId, items) {
+  const rows = await tx.comboComponent.findMany({
+    where: { companyId, comboProductId: { in: items.map((item) => item.productId) } },
+    select: {
+      comboProductId: true,
+      quantity: true,
+      component: { select: { id: true, name: true } },
+    },
+    orderBy: { component: { name: 'asc' } },
+  });
+  const byCombo = new Map();
+  for (const row of rows) {
+    if (!byCombo.has(row.comboProductId)) byCombo.set(row.comboProductId, []);
+    byCombo.get(row.comboProductId).push(row);
+  }
+  return byCombo;
+}
+
+/**
+ * Takes one combo line's contents out of stock and freezes what left.
+ *
+ * Each content is checked and moved like an ordinary line (balance locked,
+ * moving-average cost), labelled with the combo so the stock ledger reads
+ * "Sales invoice INV-12 - Diwali Pack". What left is written to
+ * SalesInvoiceItemComponent so a return can put back exactly that, at that cost.
+ */
+async function postComboLine(tx, currentUser, invoice, item, contents, movements) {
+  const { companyId } = currentUser;
+  let lineCost = toDecimal(0);
+
+  for (const content of contents) {
+    const quantity = round(multiply(item.quantity, content.quantity), QUANTITY_DP);
+    const balance = await inventoryRepository.lockBalance(tx, companyId, content.component.id, invoice.warehouseId);
+    const available = balance ? balance.quantity : toDecimal(0);
+    if (isGreaterThan(quantity, available)) {
+      throw ApiError.business(
+        422,
+        'SALE_INSUFFICIENT_STOCK',
+        `${content.component.name} (in ${item.productNameSnapshot}): only ${toMoneyString(available, 3)} in stock, ${toMoneyString(quantity, 3)} needed`,
+      );
+    }
+
+    const movement = await inventoryService.applyStockOutWithinTransaction(tx, {
+      currentUser,
+      productId: content.component.id,
+      warehouseId: invoice.warehouseId,
+      quantity,
+      referenceType: SALES_REFERENCE_TYPE,
+      referenceId: invoice.id,
+      notes: `Sales invoice ${invoice.invoiceNumber} - ${item.productNameSnapshot}`,
+      storageLocationId: null,
+    });
+    movements.push(movement);
+    lineCost = add(lineCost, movement.totalCost);
+
+    await tx.salesInvoiceItemComponent.create({
+      data: {
+        companyId,
+        salesInvoiceItemId: item.id,
+        productId: content.component.id,
+        productNameSnapshot: content.component.name,
+        quantityPerUnit: content.quantity,
+        quantity,
+        cogsUnitCost: movement.unitCost,
+        cogsAmount: movement.totalCost,
+      },
+    });
+  }
+
+  return {
+    cogsUnitCost: round(toDecimal(lineCost).div(item.quantity), MONEY_DP),
+    cogsAmount: round(lineCost, MONEY_DP),
+  };
+}
+
 // --- writes ----------------------------------------------------------------
 
 /** Creates a DRAFT. Deliberately has NO stock, receivable or ledger effect. */
 export async function createDraft(currentUser, input) {
   const { companyId } = currentUser;
 
-  const { customer, warehouse, resolvedItems } = await loadAndValidateReferences(companyId, input);
+  const { customer, warehouse, resolvedItems: typed } = await loadAndValidateReferences(companyId, input);
+  // Saved offers add their free lines here, worked out on the server.
+  const resolvedItems = await offerService.applyOffers(companyId, input.invoiceDate, typed, (id) =>
+    productRepository.findByIdAndCompany(id, companyId),
+  );
+  assertDiscountAllowed(currentUser, resolvedItems);
 
   // Where we are supplying from and to. Frozen onto the invoice: a customer who
   // moves state next year must not change the tax on this year's invoice.
@@ -335,12 +480,19 @@ export async function createDraft(currentUser, input) {
 /** Replaces a draft's contents. Only DRAFT invoices can be edited. */
 export async function updateDraft(currentUser, id, input) {
   const { companyId } = currentUser;
+  // A biller who sees only their own bills cannot act on anyone else's.
+  if (ownRecordsFilter(currentUser)) await getById(currentUser, id);
 
   const existing = await salesRepository.findByIdAndCompany(id, companyId);
   if (!existing) throw ApiError.business(404, 'SALE_NOT_FOUND', 'Sales invoice not found');
   assertIsDraft(existing);
 
-  const { customer, warehouse, resolvedItems } = await loadAndValidateReferences(companyId, input);
+  const { customer, warehouse, resolvedItems: typed } = await loadAndValidateReferences(companyId, input);
+  // Saved offers add their free lines here, worked out on the server.
+  const resolvedItems = await offerService.applyOffers(companyId, input.invoiceDate, typed, (id) =>
+    productRepository.findByIdAndCompany(id, companyId),
+  );
+  assertDiscountAllowed(currentUser, resolvedItems);
   const gstContext = await gstContextService.resolveSalesContext(currentUser, {
     customer,
     warehouse,
@@ -386,6 +538,8 @@ export async function updateDraft(currentUser, id, input) {
  */
 export async function post(currentUser, id, options = {}) {
   const { companyId } = currentUser;
+  // A biller who sees only their own bills cannot act on anyone else's.
+  if (ownRecordsFilter(currentUser)) await getById(currentUser, id);
 
   const sale = await withRetryableTransaction(async (tx) => {
     const locked = await salesRepository.lockForPosting(tx, id, companyId);
@@ -446,7 +600,20 @@ export async function post(currentUser, id, options = {}) {
     // frozen cost written onto the invoice line, never a recomputed average.
     const movements = [];
 
+    // The contents of every combo on this invoice, read inside the transaction.
+    const comboContents = await loadComboContents(tx, companyId, locked.items);
+
     for (const item of locked.items) {
+      // A COMBO holds no stock: each of its contents leaves the stock ledger on
+      // its own, and the line's cost is what those movements cost.
+      const contents = comboContents.get(item.productId);
+      if (contents) {
+        const comboCogs = await postComboLine(tx, currentUser, locked, item, contents, movements);
+        await salesRepository.setItemCogs(tx, item.id, comboCogs);
+        cogsTotal = add(cogsTotal, comboCogs.cogsAmount);
+        continue;
+      }
+
       // Lock the balance before checking it, so the check and the deduction
       // cannot be separated by another transaction, and so the failure carries a
       // sales-specific error code rather than the generic inventory one.
@@ -477,6 +644,7 @@ export async function post(currentUser, id, options = {}) {
         referenceType: SALES_REFERENCE_TYPE,
         referenceId: locked.id,
         notes: `Sales invoice ${locked.invoiceNumber}`,
+        storageLocationId: item.storageLocationId ?? null,
       });
 
       // Freeze what it actually cost, read back from the movement. Later
@@ -536,6 +704,8 @@ export async function post(currentUser, id, options = {}) {
  */
 export async function cancel(currentUser, id) {
   const { companyId } = currentUser;
+  // A biller who sees only their own bills cannot act on anyone else's.
+  if (ownRecordsFilter(currentUser)) await getById(currentUser, id);
 
   const existing = await salesRepository.findByIdAndCompany(id, companyId);
   if (!existing) throw ApiError.business(404, 'SALE_NOT_FOUND', 'Sales invoice not found');
@@ -575,6 +745,7 @@ export async function list(currentUser, query) {
     skip,
     take,
     ...filters,
+    createdById: ownRecordsFilter(currentUser) ?? undefined,
   });
 
   return {
@@ -585,6 +756,9 @@ export async function list(currentUser, query) {
 
 export async function getById(currentUser, id) {
   const sale = await salesRepository.findByIdAndCompany(id, currentUser.companyId);
-  if (!sale) throw ApiError.business(404, 'SALE_NOT_FOUND', 'Sales invoice not found');
+  const own = ownRecordsFilter(currentUser);
+  if (!sale || (own && sale.createdBy?.id !== own)) {
+    throw ApiError.business(404, 'SALE_NOT_FOUND', 'Sales invoice not found');
+  }
   return toPublicSale(sale);
 }

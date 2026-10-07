@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { TransferSection } from "./transfer-section";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDownLeft, ArrowUpRight, Landmark, Wallet } from "lucide-react";
@@ -67,6 +68,9 @@ const SOURCE_LABEL: Record<string, string> = {
   SALES_RETURN: "Sales return",
   PURCHASE_RETURN: "Purchase return",
   OPENING_BALANCE: "Opening balance",
+  MONEY_ACCOUNT_OPENING: "Opening balance",
+  MONEY_TRANSFER: "Transfer",
+  REVERSAL: "Undone",
   MANUAL: "Journal entry",
 };
 
@@ -150,6 +154,8 @@ export function CashBankPage() {
         <PageHeader title="Cash & Bank" description="Money in the till and money in the bank, from your books." />
         <MoneyTabs />
       </div>
+
+      <TransferSection />
 
       <DateRangeFilter
         value={range}

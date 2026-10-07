@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { stripBodyPrefix } from "@/lib/utils";
+import { StaffAccessFields, shopRoleLabel, useShopRoles, type StaffAccess } from "./staff-access-fields";
 
 /**
  * Staff accounts.
@@ -67,8 +68,20 @@ export function StaffPage() {
   const [form, setForm] = React.useState({ name: "", email: "", password: "", role: "STAFF" });
   const [formErrors, setFormErrors] = React.useState<Record<string, string>>({});
 
+  // A new staff member starts as a Cashier; the owner changes it in the form.
+  const shopRoles = useShopRoles();
+  const cashier = shopRoles.data?.roles.find((role) => role.key === "CASHIER");
+  const freshAccess = React.useCallback(
+    (): StaffAccess => ({ shopRole: "CASHIER", permissions: cashier?.permissions ?? [] }),
+    [cashier],
+  );
+  const [access, setAccess] = React.useState<StaffAccess>({ shopRole: "CASHIER", permissions: [] });
+  React.useEffect(() => {
+    if (addOpen) setAccess(freshAccess());
+  }, [addOpen, freshAccess]);
+
   const create = useMutation({
-    mutationFn: () => staffApi.create(form),
+    mutationFn: () => staffApi.create(form.role === "STAFF" ? { ...form, ...access } : form),
     onSuccess: () => {
       toast.success("Staff account created");
       setAddOpen(false);
@@ -89,21 +102,33 @@ export function StaffPage() {
 
   const [editing, setEditing] = React.useState<StaffRow | null>(null);
   const [editForm, setEditForm] = React.useState<{ name: string; role: ShopRole }>({ name: "", role: "STAFF" });
+  const [editAccess, setEditAccess] = React.useState<StaffAccess>({ shopRole: "CUSTOM", permissions: [] });
+  const rowAccess = (row: StaffRow): StaffAccess | null =>
+    row.shopRole ? { shopRole: String(row.shopRole), permissions: (row.permissions as string[]) ?? [] } : null;
+  const sameAccess = (a: StaffAccess | null, b: StaffAccess) =>
+    Boolean(a) && a!.shopRole === b.shopRole && a!.permissions.length === b.permissions.length &&
+    a!.permissions.every((p) => b.permissions.includes(p));
   const [editErrors, setEditErrors] = React.useState<Record<string, string>>({});
 
   const openEdit = (row: StaffRow) => {
     setEditing(row);
     setEditForm({ name: String(row.name ?? ""), role: row.role === "ADMIN" ? "ADMIN" : "STAFF" });
+    // A staff account from before roles existed starts the picker as a Cashier.
+    setEditAccess(rowAccess(row) ?? freshAccess());
     setEditErrors({});
   };
 
   const update = useMutation({
     mutationFn: () => {
       if (!editing) throw new Error("No staff member selected");
-      const body: { name?: string; role?: ShopRole } = {};
+      const body: { name?: string; role?: ShopRole; shopRole?: string; permissions?: string[] } = {};
       if (editForm.name.trim() !== String(editing.name ?? "")) body.name = editForm.name.trim();
       // The backend refuses a change to your own role; do not even send one.
       if (!isMe(editing) && editForm.role !== editing.role) body.role = editForm.role;
+      if (editForm.role === "STAFF" && !sameAccess(rowAccess(editing), editAccess)) {
+        body.shopRole = editAccess.shopRole;
+        body.permissions = editAccess.permissions;
+      }
       return staffAdminApi.update(String(editing.id), body);
     },
     onSuccess: () => {
@@ -124,7 +149,8 @@ export function StaffPage() {
   const editUnchanged =
     editing !== null &&
     editForm.name.trim() === String(editing.name ?? "") &&
-    (isMe(editing) || editForm.role === editing.role);
+    (isMe(editing) || editForm.role === editing.role) &&
+    (editForm.role !== "STAFF" || sameAccess(rowAccess(editing), editAccess));
 
   // --- switch on / off --------------------------------------------------------
 
@@ -188,7 +214,9 @@ export function StaffPage() {
     {
       header: "Role",
       cell: (row) => (
-        <Badge variant={row.role === "ADMIN" ? "default" : "secondary"}>{roleLabel(row.role)}</Badge>
+        <Badge variant={row.role === "ADMIN" ? "default" : "secondary"}>
+          {shopRoleLabel(shopRoles.data?.roles, row.shopRole as string | null) ?? roleLabel(row.role)}
+        </Badge>
       ),
     },
     {
@@ -251,7 +279,9 @@ export function StaffPage() {
               <StatusBadge status={row.isActive ? "ACTIVE" : "INACTIVE"} />
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Badge variant={row.role === "ADMIN" ? "default" : "secondary"}>{roleLabel(row.role)}</Badge>
+              <Badge variant={row.role === "ADMIN" ? "default" : "secondary"}>
+                {shopRoleLabel(shopRoles.data?.roles, row.shopRole as string | null) ?? roleLabel(row.role)}
+              </Badge>
               {actions(row)}
             </div>
           </div>
@@ -328,6 +358,7 @@ export function StaffPage() {
                   <option value="ADMIN">{roleLabel("ADMIN")}</option>
                 </NativeSelect>
               </Field>
+              {form.role === "STAFF" ? <StaffAccessFields value={access} onChange={setAccess} /> : null}
             </FormSection>
 
             <DialogFooter>
@@ -386,6 +417,9 @@ export function StaffPage() {
                   <option value="ADMIN">{roleLabel("ADMIN")}</option>
                 </NativeSelect>
               </Field>
+              {editForm.role === "STAFF" ? (
+                <StaffAccessFields value={editAccess} onChange={setEditAccess} />
+              ) : null}
             </FormSection>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditing(null)} disabled={update.isPending}>

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MoneyAccountsSection } from "./money-accounts-section";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BadgeCheck, Building2, ChevronRight, Loader2, Receipt, ShieldCheck, Users } from "lucide-react";
@@ -21,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/ui/select-native";
 import { gstRegistrationApi } from "@/features/gst/api";
 import { StoresSection } from "./stores-section";
+import { LocationsSection } from "./locations-section";
 
 /**
  * Business settings.
@@ -72,7 +74,11 @@ export function BusinessSettings() {
         <InvoiceSettingsCard canEdit={canEdit} />
       </div>
 
+      <MoneyAccountsSection />
+
       <StoresSection />
+
+      <LocationsSection />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <GstCard />

@@ -35,6 +35,8 @@ const MOVEMENT_FIELDS = {
   createdAt: true,
   product: { select: { id: true, name: true, sku: true } },
   warehouse: { select: { id: true, name: true, code: true } },
+  // The rack, drawer or fridge inside the warehouse, when one was recorded.
+  storageLocation: { select: { id: true, name: true, code: true, type: true } },
   // Only the fields needed to say who did it. Never the email or password hash.
   createdBy: { select: { id: true, name: true } },
 };
@@ -122,11 +124,12 @@ export function findMovementByIdAndCompany(id, companyId) {
  */
 export async function listMovementsByCompany(
   companyId,
-  { skip, take, productId, warehouseId, type, fromDate, toDate },
+  { skip, take, productId, warehouseId, storageLocationId, type, fromDate, toDate },
 ) {
   const where = { companyId };
   if (productId) where.productId = productId;
   if (warehouseId) where.warehouseId = warehouseId;
+  if (storageLocationId) where.storageLocationId = storageLocationId;
   if (type) where.type = type;
   if (fromDate || toDate) {
     where.createdAt = {};

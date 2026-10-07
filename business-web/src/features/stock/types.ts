@@ -11,6 +11,7 @@ export interface MovementRow extends StockMovement {
   referenceId?: string | null;
   createdBy?: { id: string; name: string } | null;
   warehouse?: { id: string; name: string; code?: string };
+  storageLocation?: { id: string; name: string; code: string | null; type: string } | null;
 }
 
 export interface ProductRecord extends Omit<Product, "sku"> {

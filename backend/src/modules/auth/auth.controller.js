@@ -1,4 +1,5 @@
 import * as authService from './auth.service.js';
+import { shopPermissionsOf } from '../users/shop-permissions.js';
 import { sendSuccess } from '../../utils/response.js';
 import {
   REFRESH_COOKIE,
@@ -38,5 +39,8 @@ export async function logout(req, res) {
 
 export async function me(req, res) {
   // requireAuth already loaded the user and stripped unsafe fields.
-  return sendSuccess(res, { user: req.user });
+  // For a shop user, what they may actually do - so the app can hide what the
+  // server would refuse anyway. The server still checks every request.
+  const shopPermissions = req.user.companyId ? shopPermissionsOf(req.user) : undefined;
+  return sendSuccess(res, { user: { ...req.user, ...(shopPermissions ? { shopPermissions } : {}) } });
 }

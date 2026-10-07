@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as partyController from './party.controller.js';
 import {
   listPartiesQuerySchema,
@@ -38,45 +39,52 @@ partyRoutes.get('/:id', shopUser, validate({ params: idParamSchema }), partyCont
 // through the party. Nothing new is calculated.
 partyRoutes.get(
   '/:id/customer-ledger',
-  shopUser,
+  requireShopPermission('REPORTS_VIEW'),
   validate({ params: idParamSchema, query: partyLedgerQuerySchema }),
   partyController.customerLedger,
 );
 partyRoutes.get(
   '/:id/supplier-ledger',
-  shopUser,
+  requireShopPermission('REPORTS_VIEW'),
   validate({ params: idParamSchema, query: partyLedgerQuerySchema }),
   partyController.supplierLedger,
 );
 partyRoutes.get(
   '/:id/statement',
-  shopUser,
+  requireShopPermission('REPORTS_VIEW'),
   validate({ params: idParamSchema, query: partyLedgerQuerySchema }),
   partyController.statement,
 );
 
-partyRoutes.post('/', shopAdmin, validate({ body: createPartySchema }), partyController.create);
+// CUSTOMERS_CREATE (a cashier at the counter) may add a plain customer; the
+// service refuses anything more - see assertMayCreate.
+partyRoutes.post(
+  '/',
+  requireShopPermission('PARTIES_MANAGE', 'CUSTOMERS_CREATE'),
+  validate({ body: createPartySchema }),
+  partyController.create,
+);
 partyRoutes.patch(
   '/:id',
-  shopAdmin,
+  requireShopPermission('PARTIES_MANAGE'),
   validate({ params: idParamSchema, body: updatePartySchema }),
   partyController.update,
 );
 partyRoutes.patch(
   '/:id/status',
-  shopAdmin,
+  requireShopPermission('PARTIES_MANAGE'),
   validate({ params: idParamSchema, body: statusSchema }),
   partyController.updateStatus,
 );
 partyRoutes.post(
   '/:id/relationships',
-  shopAdmin,
+  requireShopPermission('PARTIES_MANAGE', 'CUSTOMERS_CREATE'),
   validate({ params: idParamSchema, body: addRelationshipSchema }),
   partyController.addRelationship,
 );
 partyRoutes.post(
   '/:id/link',
-  shopAdmin,
+  requireShopPermission('PARTIES_MANAGE'),
   validate({ params: idParamSchema, body: linkPartySchema }),
   partyController.link,
 );

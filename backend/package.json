@@ -23,6 +23,12 @@
     "db:status:prod": "node --env-file=.env.production node_modules/prisma/build/index.js migrate status",
     "seed:demo": "node prisma/seed-demo.js",
     "seed:demo:parties": "node prisma/seed-demo-parties.js",
+    "seed:demo:locations": "node prisma/seed-demo-locations.js",
+    "seed:demo:shares": "node prisma/seed-demo-shares.js",
+    "seed:demo:staff": "node prisma/seed-demo-staff.js",
+    "seed:demo:combos": "node prisma/seed-demo-combos.js",
+    "seed:demo:offers": "node prisma/seed-demo-offers.js",
+    "seed:demo:money": "node prisma/seed-demo-money.js",
     "defaults:ensure": "node prisma/ensure-defaults.js",
     "defaults:ensure:prod": "node --env-file=.env.production prisma/ensure-defaults.js"
   },

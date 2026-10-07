@@ -5,6 +5,7 @@ import { prisma } from '../../config/prisma.js';
 const ITEM_FIELDS = {
   id: true,
   lineNumber: true,
+  storageLocationId: true,
   productId: true,
   taxId: true,
   quantity: true,

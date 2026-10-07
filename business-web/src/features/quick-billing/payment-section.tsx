@@ -43,6 +43,7 @@ export function PaymentSection({
   onAmountChange,
   method,
   onMethodChange,
+  accountPicker,
   grandTotal,
   error,
   disabled,
@@ -53,6 +54,8 @@ export function PaymentSection({
   onAmountChange: (value: string) => void;
   method: PaymentMethod;
   onMethodChange: (method: PaymentMethod) => void;
+  /** Which cash / bank / UPI account the money goes into (optional). */
+  accountPicker?: React.ReactNode;
   /** The saved draft's total from the backend, if there is an up-to-date one. */
   grandTotal?: string | null;
   error?: string;
@@ -131,6 +134,12 @@ export function PaymentSection({
               ))}
             </NativeSelect>
           </div>
+          {accountPicker ? (
+            <div className="space-y-1 sm:col-span-2">
+              <span className="text-xs text-muted-foreground">Into account</span>
+              {accountPicker}
+            </div>
+          ) : null}
           {error ? <p className="text-xs text-destructive sm:col-span-2">{error}</p> : null}
         </div>
       )}

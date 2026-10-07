@@ -12,6 +12,8 @@ const PUBLIC_FIELDS = {
   email: true,
   name: true,
   role: true,
+  shopRole: true,
+  permissions: true,
   isActive: true,
   lastLoginAt: true,
   companyId: true,

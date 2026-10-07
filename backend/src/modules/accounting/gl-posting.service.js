@@ -243,11 +243,19 @@ export function cashOrBankAccount(paymentMethod) {
  *   Dr Advance to Suppliers   the unallocated remainder, which is a real advance
  *       Cr Bank / Cash        the full amount that left the business
  */
+/** The money side of a payment: the chosen account, else Cash/Bank by method. */
+function moneyLine(moneyAccountId, paymentMethod, side, amount, description) {
+  return moneyAccountId
+    ? { accountId: moneyAccountId, [side]: round(amount, MONEY_DP), description }
+    : line(cashOrBankAccount(paymentMethod), side, amount, description);
+}
+
 export function buildSupplierPaymentLines({
   allocatedAmount,
   unallocatedAmount,
   amount,
   paymentMethod,
+  moneyAccountId = null,
   paymentNumber,
 }) {
   return nonZero([
@@ -258,7 +266,7 @@ export function buildSupplierPaymentLines({
       unallocatedAmount,
       `Advance on ${paymentNumber}`,
     ),
-    line(cashOrBankAccount(paymentMethod), 'credit', amount, `Payment ${paymentNumber}`),
+    moneyLine(moneyAccountId, paymentMethod, 'credit', amount, `Payment ${paymentNumber}`),
   ]);
 }
 
@@ -434,10 +442,11 @@ export function buildCustomerPaymentLines({
   unallocatedAmount,
   amount,
   paymentMethod,
+  moneyAccountId = null,
   paymentNumber,
 }) {
   return nonZero([
-    line(cashOrBankAccount(paymentMethod), 'debit', amount, `Receipt ${paymentNumber}`),
+    moneyLine(moneyAccountId, paymentMethod, 'debit', amount, `Receipt ${paymentNumber}`),
     line(
       SYSTEM_ACCOUNT.ACCOUNTS_RECEIVABLE,
       'credit',
@@ -481,20 +490,26 @@ export function buildExpenseLines({
   amount,
   expenseAccountId,
   paymentAccountId,
+  paymentParts = [],
   expenseNumber,
   categoryName,
 }) {
+  // Paid from several accounts: one credit per account, adding up to the amount.
+  const credits =
+    paymentParts.length > 0
+      ? paymentParts.map((part) => ({
+          accountId: part.accountId,
+          credit: round(part.amount, MONEY_DP),
+          description: `Paid for ${expenseNumber}`,
+        }))
+      : [{ accountId: paymentAccountId, credit: round(amount, MONEY_DP), description: `Paid for ${expenseNumber}` }];
   return nonZero([
     {
       accountId: expenseAccountId,
       debit: round(amount, MONEY_DP),
       description: `${categoryName} - ${expenseNumber}`,
     },
-    {
-      accountId: paymentAccountId,
-      credit: round(amount, MONEY_DP),
-      description: `Paid for ${expenseNumber}`,
-    },
+    ...credits,
   ]);
 }
 
@@ -512,6 +527,7 @@ export function recordExpensePosted(tx, currentUser, expense) {
       amount: expense.amount,
       expenseAccountId: expense.expenseAccountId,
       paymentAccountId: expense.paymentAccountId,
+      paymentParts: expense.paymentParts ?? [],
       expenseNumber: expense.expenseNumber,
       categoryName: expense.categoryNameSnapshot,
     }),
@@ -537,11 +553,21 @@ export function recordExpenseReversed(tx, currentUser, expense, originalEntry) {
     sourceId: expense.id,
     reversalOfId: originalEntry?.id ?? null,
     lines: nonZero([
-      {
-        accountId: expense.paymentAccountId,
-        debit: round(expense.amount, MONEY_DP),
-        description: `Reversal of ${expense.expenseNumber}`,
-      },
+      // The money goes back to every account it came from - one line per part
+      // of a split payment, else the single payment account.
+      ...((expense.paymentParts ?? []).length > 0
+        ? expense.paymentParts.map((part) => ({
+            accountId: part.accountId,
+            debit: round(part.amount, MONEY_DP),
+            description: `Reversal of ${expense.expenseNumber}`,
+          }))
+        : [
+            {
+              accountId: expense.paymentAccountId,
+              debit: round(expense.amount, MONEY_DP),
+              description: `Reversal of ${expense.expenseNumber}`,
+            },
+          ]),
       {
         accountId: expense.expenseAccountId,
         credit: round(expense.amount, MONEY_DP),

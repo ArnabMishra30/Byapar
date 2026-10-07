@@ -18,6 +18,7 @@ export function StockTabs() {
         { label: "Stock Out", href: ROUTES.stockOut },
         { label: "Adjustments", href: ROUTES.stockAdjustments },
         { label: "Low Stock", href: ROUTES.lowStock },
+        { label: "Offers", href: ROUTES.offers },
       ]}
     />
   );

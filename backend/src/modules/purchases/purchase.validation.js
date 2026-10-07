@@ -31,6 +31,8 @@ const purchaseItemSchema = z
   .object({
     productId: z.string({ required_error: 'Product is required' }).uuid('Invalid productId'),
     taxId: z.string().uuid('Invalid taxId').nullable().optional(),
+    // The rack / shelf / fridge for this line. Optional.
+    storageLocationId: z.string().uuid('Invalid storageLocationId').nullable().optional(),
     quantity: positiveQuantitySchema,
     // Zero is allowed: free goods and samples are real.
     unitCost: moneySchema('Unit cost'),

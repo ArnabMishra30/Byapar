@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as purchaseReturnController from './purchase-return.controller.js';
 import {
   createPurchaseReturnSchema,
@@ -21,40 +22,44 @@ purchaseReturnRoutes.use(requireAuth);
 // Declared before /:id so "returnable" is never read as a return id.
 purchaseReturnRoutes.get(
   '/returnable/:purchaseId',
+  requireShopPermission('PURCHASES_MANAGE', 'REPORTS_VIEW', 'LEGACY_DRAFTS'),
   validate({ params: returnablePurchaseParamsSchema }),
   purchaseReturnController.returnableLines,
 );
 
 purchaseReturnRoutes.get(
   '/',
+  requireShopPermission('PURCHASES_MANAGE', 'REPORTS_VIEW'),
   validate({ query: listPurchaseReturnsQuerySchema }),
   purchaseReturnController.list,
 );
 
-purchaseReturnRoutes.get('/:id', validate({ params: idParamSchema }), purchaseReturnController.get);
+purchaseReturnRoutes.get('/:id', requireShopPermission('PURCHASES_MANAGE', 'REPORTS_VIEW'), validate({ params: idParamSchema }), purchaseReturnController.get);
 
 purchaseReturnRoutes.post(
   '/',
+  requireShopPermission('PURCHASES_MANAGE', 'LEGACY_DRAFTS'),
   validate({ body: createPurchaseReturnSchema }),
   purchaseReturnController.create,
 );
 
 purchaseReturnRoutes.patch(
   '/:id',
+  requireShopPermission('PURCHASES_MANAGE', 'LEGACY_DRAFTS'),
   validate({ params: idParamSchema, body: updatePurchaseReturnSchema }),
   purchaseReturnController.update,
 );
 
 purchaseReturnRoutes.post(
   '/:id/post',
-  requireRole('ADMIN'),
+  requireShopPermission('PURCHASES_MANAGE'),
   validate({ params: idParamSchema }),
   purchaseReturnController.post,
 );
 
 purchaseReturnRoutes.post(
   '/:id/cancel',
-  requireRole('ADMIN'),
+  requireShopPermission('PURCHASES_MANAGE'),
   validate({ params: idParamSchema }),
   purchaseReturnController.cancel,
 );

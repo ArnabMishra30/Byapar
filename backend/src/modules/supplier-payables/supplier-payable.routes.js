@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as supplierPayableController from './supplier-payable.controller.js';
 import {
   listPayablesQuerySchema,
@@ -19,12 +20,14 @@ supplierPayableRoutes.use(requireAuth);
 
 supplierPayableRoutes.get(
   '/',
+  requireShopPermission('REPORTS_VIEW', 'MONEY_PAY', 'PURCHASES_MANAGE'),
   validate({ query: listPayablesQuerySchema }),
   supplierPayableController.listPayables,
 );
 
 supplierPayableRoutes.get(
   '/:id',
+  requireShopPermission('REPORTS_VIEW', 'MONEY_PAY', 'PURCHASES_MANAGE'),
   validate({ params: idParamSchema }),
   supplierPayableController.getPayable,
 );
@@ -40,18 +43,21 @@ supplierLedgerRoutes.use(requireAuth);
 
 supplierLedgerRoutes.get(
   '/:supplierId/ledger',
+  requireShopPermission('REPORTS_VIEW'),
   validate({ params: supplierIdParamSchema, query: ledgerQuerySchema }),
   supplierPayableController.supplierLedger,
 );
 
 supplierLedgerRoutes.get(
   '/:supplierId/outstanding',
+  requireShopPermission('REPORTS_VIEW', 'MONEY_PAY'),
   validate({ params: supplierIdParamSchema }),
   supplierPayableController.supplierOutstanding,
 );
 
 supplierLedgerRoutes.get(
   '/:supplierId/payables',
+  requireShopPermission('REPORTS_VIEW', 'MONEY_PAY'),
   validate({ params: supplierIdParamSchema }),
   supplierPayableController.supplierOutstandingPayables,
 );

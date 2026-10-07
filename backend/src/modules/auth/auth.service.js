@@ -1,4 +1,5 @@
 import { verify as verifyPassword, hash as hashPasswordRaw } from '@node-rs/argon2';
+import { shopPermissionsOf } from '../users/shop-permissions.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { env } from '../../config/env.js';
@@ -32,6 +33,9 @@ export function toPublicUser(user) {
     name: user.name,
     role: user.role,
     companyId: user.companyId,
+    // What a shop user may do, the same as /auth/me returns - so the app shows
+    // the right screens straight after login, not only after a refresh.
+    ...(user.companyId ? { shopRole: user.shopRole ?? null, shopPermissions: shopPermissionsOf(user) } : {}),
   };
 }
 

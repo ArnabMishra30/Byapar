@@ -1,4 +1,5 @@
 import { ApiError } from '../../utils/api-error.js';
+import { ownRecordsFilter } from '../users/shop-permissions.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
 import {
   add,
@@ -509,7 +510,32 @@ export async function post(currentUser, id) {
     // Kept so the journal debits inventory with exactly what re-entered it.
     const movements = [];
 
+    // What each combo line took out, frozen when the invoice posted.
+    const comboContents = await tx.salesInvoiceItemComponent.findMany({
+      where: { companyId, salesInvoiceItemId: { in: rows.map((row) => row.salesInvoiceItemId) } },
+    });
+
     for (const row of rows) {
+      // A combo comes back as its contents, each at the cost it left at.
+      const contents = comboContents.filter((c) => c.salesInvoiceItemId === row.salesInvoiceItemId);
+      if (contents.length > 0) {
+        for (const content of contents) {
+          const movement = await inventoryService.applyStockInWithinTransaction(tx, {
+            currentUser,
+            productId: content.productId,
+            warehouseId: locked.warehouseId,
+            quantity: multiply(row.quantity, content.quantityPerUnit),
+            unitCost: content.cogsUnitCost,
+            referenceType: SALES_RETURN_REFERENCE_TYPE,
+            referenceId: locked.id,
+            notes: `Sales return ${locked.returnNumber} - ${row.productNameSnapshot}`,
+          });
+          movements.push(movement);
+          cogsTotal = add(cogsTotal, movement.totalCost);
+        }
+        continue;
+      }
+
       // Stock comes back at the FROZEN cost from the original sale, so the
       // valuation the sale removed is restored exactly.
       const movement = await inventoryService.applyStockInWithinTransaction(tx, {
@@ -623,6 +649,7 @@ export async function list(currentUser, query) {
     skip,
     take,
     ...filters,
+    createdById: ownRecordsFilter(currentUser) ?? undefined,
   });
 
   return {
@@ -633,7 +660,8 @@ export async function list(currentUser, query) {
 
 export async function getById(currentUser, id) {
   const salesReturn = await salesReturnRepository.findByIdAndCompany(id, currentUser.companyId);
-  if (!salesReturn) {
+  const own = ownRecordsFilter(currentUser);
+  if (!salesReturn || (own && salesReturn.createdBy?.id !== own)) {
     throw ApiError.business(404, 'SALES_RETURN_NOT_FOUND', 'Sales return not found');
   }
   return toPublicSalesReturn(salesReturn);

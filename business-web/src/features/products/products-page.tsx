@@ -140,9 +140,12 @@ export function ProductsPage() {
     {
       header: "Name",
       cell: (row) => (
-        <Link href={DETAIL_ROUTES.product(row.id)} className="block max-w-[16rem] truncate font-medium hover:text-primary">
-          {row.name}
-        </Link>
+        <span className="block max-w-[16rem]">
+          <Link href={DETAIL_ROUTES.product(row.id)} className="block truncate font-medium hover:text-primary">
+            {row.name}
+          </Link>
+          <ComboNote row={row} />
+        </span>
       ),
     },
     { header: "Code / SKU", hideOnMobile: true, cell: (row) => row.sku || "—" },
@@ -249,6 +252,7 @@ export function ProductsPage() {
           <div className="flex items-start justify-between gap-3">
             <Link href={DETAIL_ROUTES.product(row.id)} className="min-w-0 flex-1 space-y-1">
               <p className="truncate font-medium">{row.name}</p>
+              <ComboNote row={row} />
               <p className="truncate text-xs text-muted-foreground">
                 {[row.sku, row.category?.name, row.unit?.shortCode].filter(Boolean).join(" · ") || "—"}
               </p>
@@ -299,5 +303,19 @@ export function ProductsPage() {
         onConfirm={() => toggling && toggle.mutate(toggling)}
       />
     </div>
+  );
+}
+
+/** For a combo: what is in it and how many its contents' stock allows. */
+function ComboNote({ row }: { row: ProductRecord }) {
+  if (!row.isCombo) return null;
+  return (
+    <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+      <Badge variant="default">Combo</Badge>
+      <span>Can make {row.availability?.total ?? 0}</span>
+      <span className="truncate">
+        · {(row.components ?? []).map((c) => `${Number(c.quantity)} × ${c.name}`).join(", ")}
+      </span>
+    </span>
   );
 }

@@ -113,7 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const onUnauthorized = () => {
       clear();
       setIsReady(true);
-      if (pathname && !pathname.startsWith("/shop/login")) {
+      // A shared bill (/s/...) is public: never bounce its reader to a login.
+      if (pathname && !pathname.startsWith("/shop/login") && !pathname.startsWith("/s/")) {
         router.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
       }
     };
@@ -172,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAdmin: role === "ADMIN",
     // The backend computes this; we only read it.
     isGstEnabled: Boolean(gstProfile?.gstEnabled),
-    can: (capability: Capability) => can(role, capability),
+    can: (capability: Capability) => can(role, capability, user?.shopPermissions),
     login,
     logout,
     refresh: loadSession,

@@ -5,6 +5,14 @@ import { prisma } from '../../config/prisma.js';
 const ITEM_FIELDS = {
   id: true,
   lineNumber: true,
+  isFree: true,
+  offer: { select: { id: true, name: true } },
+  listPriceSnapshot: true,
+  components: {
+    select: { productId: true, productNameSnapshot: true, quantityPerUnit: true, quantity: true, cogsUnitCost: true },
+    orderBy: { productNameSnapshot: 'asc' },
+  },
+  storageLocationId: true,
   productId: true,
   taxId: true,
   quantity: true,
@@ -124,9 +132,11 @@ export async function lockForPosting(tx, id, companyId) {
  */
 export async function findManyByCompany(
   companyId,
-  { skip, take, search, customerId, warehouseId, status, fromDate, toDate },
+  { skip, take, search, customerId, warehouseId, status, fromDate, toDate, createdById },
 ) {
   const where = { companyId };
+  // A biller without "see everyone's sales" sees only their own.
+  if (createdById) where.createdById = createdById;
 
   if (search) {
     where.OR = [

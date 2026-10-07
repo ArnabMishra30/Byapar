@@ -22,6 +22,8 @@ const PAYMENT_FIELDS = {
   allocatedAmount: true,
   unallocatedAmount: true,
   paymentMethod: true,
+  moneyAccountId: true,
+  moneyAccount: { select: { id: true, name: true } },
   referenceNumber: true,
   notes: true,
   status: true,
@@ -64,6 +66,8 @@ export async function lockForPosting(tx, id, companyId) {
       amount: true,
       // Needed by the journal entry: cash and bank are different accounts.
       paymentMethod: true,
+  moneyAccountId: true,
+  moneyAccount: { select: { id: true, name: true } },
       allocations: { select: { id: true, supplierPayableId: true, amount: true } },
     },
   });

@@ -14,3 +14,6 @@ export * from "./bills";
 // Typed wrappers for the rest of the backend the shop screens use.
 export * from "./extended";
 export * from "./parties";
+export * from "./storage-locations";
+export * from "./share";
+export * from "./staff";

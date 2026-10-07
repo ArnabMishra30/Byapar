@@ -73,10 +73,23 @@ export type Capability =
   | "gst.read"
   | "gst.manage"
   | "staff.manage"
-  | "reports.read";
+  | "reports.read"
+  // per-user staff permissions
+  | "sales.cancel"
+  | "salesReturns.draft"
+  | "share.create"
+  | "bills.confirm"
+  | "customers.create"
+  | "sales.discount"
+  | "offers.manage";
 
 const ADMIN_ONLY: ReadonlySet<Capability> = new Set<Capability>([
   "sales.post",
+  "sales.cancel",
+  "share.create",
+  "bills.confirm",
+  "customers.create",
+  "offers.manage",
   // Every purchase write is ADMIN on the backend, drafts included
   // (purchase.routes.js: POST /, PATCH /:id, /post and /cancel all
   // requireRole('ADMIN')). Unlike a sale, staff cannot even prepare one.
@@ -96,10 +109,73 @@ const ADMIN_ONLY: ReadonlySet<Capability> = new Set<Capability>([
   "staff.manage",
 ]);
 
-/** Whether a role may do something. Mirrors the backend; never guesses. */
-export function can(role: UserRole | undefined | null, capability: Capability): boolean {
+/**
+ * Which per-user permission (set by the owner on the Staff screen) unlocks each
+ * capability for a STAFF member. Any one of the listed permissions is enough.
+ * null = open to every shop user; [] = the owner only. Mirrors the backend's
+ * requireShopPermission guards.
+ */
+const STAFF_PERMISSION_FOR: Record<Capability, string[] | null> = {
+  "sales.read": null,
+  "sales.draft": ["SALES_CREATE", "SALES_POST"],
+  "sales.post": ["SALES_POST"],
+  "sales.cancel": ["SALES_CANCEL"],
+  "salesReturns.draft": ["SALES_CANCEL", "LEGACY_DRAFTS"],
+  "purchases.read": ["PURCHASES_MANAGE", "REPORTS_VIEW"],
+  "purchases.draft": ["PURCHASES_MANAGE"],
+  "purchases.post": ["PURCHASES_MANAGE"],
+  "expenses.read": ["EXPENSES_MANAGE", "REPORTS_VIEW", "LEGACY_DRAFTS"],
+  "expenses.draft": ["EXPENSES_MANAGE", "LEGACY_DRAFTS"],
+  "expenses.post": ["EXPENSES_MANAGE"],
+  "bills.upload": null,
+  "bills.confirm": ["BILLS_CONFIRM"],
+  "money.read": ["MONEY_RECEIVE", "MONEY_PAY", "REPORTS_VIEW"],
+  "money.receive": ["MONEY_RECEIVE"],
+  "money.pay": ["MONEY_PAY"],
+  "parties.read": null,
+  "parties.manage": ["PARTIES_MANAGE"],
+  "products.read": null,
+  "products.manage": ["PRODUCTS_MANAGE"],
+  "inventory.read": null,
+  "inventory.adjust": ["STOCK_ADJUST"],
+  "accounting.read": ["REPORTS_VIEW"],
+  "accounting.manage": [],
+  "periods.read": null,
+  "periods.manage": [],
+  "openingBalances.read": ["REPORTS_VIEW"],
+  "openingBalances.create": [],
+  "settings.read": null,
+  "settings.manage": [],
+  "gst.read": null,
+  "gst.manage": [],
+  "staff.manage": [],
+  "reports.read": ["REPORTS_VIEW"],
+  "share.create": ["SHARE_LINKS"],
+  // A cashier adding a walk-in customer from the bill; cannot edit existing ones.
+  "customers.create": ["PARTIES_MANAGE", "CUSTOMERS_CREATE"],
+  // Discounts, price cuts, and free items given by hand.
+  "sales.discount": ["SALES_DISCOUNT"],
+  // Setting up Buy X get Y offers.
+  "offers.manage": ["PRODUCTS_MANAGE"],
+};
+
+/**
+ * Whether the signed-in user may do something. Mirrors the backend; never
+ * guesses. `shopPermissions` comes from the session (/auth/me); without it the
+ * old two-role rule applies.
+ */
+export function can(
+  role: UserRole | undefined | null,
+  capability: Capability,
+  shopPermissions?: readonly string[] | null,
+): boolean {
   if (!role) return false;
   if (role === "ADMIN") return true;
+  if (role === "STAFF" && shopPermissions) {
+    const needed = STAFF_PERMISSION_FOR[capability];
+    if (needed === null) return true;
+    return needed.some((permission) => shopPermissions.includes(permission));
+  }
   return !ADMIN_ONLY.has(capability);
 }
 

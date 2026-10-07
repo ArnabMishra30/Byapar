@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { MapPin, X } from "lucide-react";
 import { inventoryApi, warehousesApi } from "@/lib/api";
 import { DataTable, useListState, type Column } from "@/components/shared/data-table";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range";
@@ -11,6 +11,7 @@ import { EntitySelect } from "@/components/shared/entity-select";
 import { Money } from "@/components/shared/money";
 import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/select-native";
+import { LocationSelect } from "./location-select";
 import { DETAIL_ROUTES } from "@/lib/constants";
 import { formatDateTime } from "@/lib/utils";
 import { formatQuantity, movementLabel, type MovementType } from "./stock-helpers";
@@ -60,6 +61,7 @@ export function MovementList({
   const [type, setType] = React.useState<MovementType | "">(types[0] ?? "");
   const [product, setProduct] = React.useState<{ id: string; name: string } | null>(null);
   const [warehouseId, setWarehouseId] = React.useState("");
+  const [storageLocationId, setStorageLocationId] = React.useState("");
   const [range, setRange] = React.useState<DateRangeValue>({});
   const warehouses = useWarehouses();
 
@@ -72,6 +74,7 @@ export function MovementList({
       type,
       productId,
       warehouseId,
+      storageLocationId,
       range.fromDate,
       range.toDate,
       list.page,
@@ -84,6 +87,7 @@ export function MovementList({
         type: type || undefined,
         productId,
         warehouseId: warehouseId || undefined,
+        storageLocationId: storageLocationId || undefined,
         // The backend filters on when the movement was recorded (createdAt).
         fromDate: range.fromDate ? `${range.fromDate}T00:00:00` : undefined,
         toDate: range.toDate ? `${range.toDate}T23:59:59.999` : undefined,
@@ -91,7 +95,7 @@ export function MovementList({
   });
 
   const resetPage = () => list.setPage(1);
-  const hasFilter = Boolean(product || warehouseId || range.fromDate || range.toDate);
+  const hasFilter = Boolean(product || warehouseId || storageLocationId || range.fromDate || range.toDate);
 
   const productCell = (row: MovementRow) =>
     row.product ? (
@@ -112,6 +116,9 @@ export function MovementList({
     },
   ];
   if (!fixedProductId) columns.push({ header: "Product", cell: productCell });
+  // Where the stock moved, tagged on every row: the same product can sit in
+  // several godowns, and a quantity without its location cannot be checked.
+  columns.push({ header: "Location", cell: (row) => <LocationTag warehouse={row.warehouse} storageLocation={row.storageLocation} /> });
   if (columnSet === "all" || columnSet === "adjustment" || types.length > 1) {
     columns.push({ header: "Type", cell: (row) => movementLabel(row.type), hideOnMobile: true });
   }
@@ -136,7 +143,6 @@ export function MovementList({
       cell: (row) => <span className="tabular">{formatQuantity(row.quantityAfter)}</span>,
     });
   }
-  columns.push({ header: "Warehouse", hideOnMobile: true, cell: (row) => row.warehouse?.name ?? "—" });
   if (columnSet === "adjustment") {
     columns.push({
       header: "Reason / notes",
@@ -198,6 +204,7 @@ export function MovementList({
               <div className="lg:w-56">
                 <EntitySelect
                   kind="product"
+                  productKind="ITEM"
                   value={product?.id}
                   valueLabel={product?.name}
                   placeholder="All products"
@@ -213,6 +220,8 @@ export function MovementList({
               value={warehouseId}
               onChange={(e) => {
                 setWarehouseId(e.target.value);
+                // A rack belongs to one store; a new store starts with all racks.
+                setStorageLocationId("");
                 resetPage();
               }}
               className="lg:w-48"
@@ -224,6 +233,19 @@ export function MovementList({
                 </option>
               ))}
             </NativeSelect>
+            {warehouseId ? (
+              <div className="min-w-0 lg:w-44">
+                <LocationSelect
+                  warehouseId={warehouseId}
+                  value={storageLocationId}
+                  onChange={(value) => {
+                    setStorageLocationId(value);
+                    resetPage();
+                  }}
+                  emptyLabel="All racks / shelves"
+                />
+              </div>
+            ) : null}
             <div className="min-w-0 sm:col-span-2 lg:col-span-1">
               <DateRangeFilter
                 value={range}
@@ -241,6 +263,7 @@ export function MovementList({
                 onClick={() => {
                   setProduct(null);
                   setWarehouseId("");
+                  setStorageLocationId("");
                   setRange({});
                   resetPage();
                 }}
@@ -260,9 +283,10 @@ export function MovementList({
               ) : (
                 productCell(row)
               )}
-              <p className="text-xs text-muted-foreground">
-                {formatDateTime(row.createdAt)} · {row.warehouse?.name ?? "—"}
-              </p>
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                <span>{formatDateTime(row.createdAt)}</span>
+                <LocationTag warehouse={row.warehouse} storageLocation={row.storageLocation} />
+              </div>
             </div>
             <SignedQuantity type={row.type} quantity={row.quantity} />
           </div>
@@ -283,5 +307,29 @@ export function MovementList({
       emptyDescription={hasFilter ? "Try a different product, warehouse or date." : emptyDescription}
       emptyAction={hasFilter ? undefined : emptyAction}
     />
+  );
+}
+
+/** Where a movement happened: the store, and the rack / shelf / fridge inside it. */
+function LocationTag({
+  warehouse,
+  storageLocation,
+}: {
+  warehouse?: { name: string; code?: string | null } | null;
+  storageLocation?: { name: string; code?: string | null } | null;
+}) {
+  if (!warehouse) return <span className="text-muted-foreground">—</span>;
+  const label = storageLocation ? `${warehouse.name} › ${storageLocation.name}` : warehouse.name;
+  return (
+    <span
+      className="inline-flex max-w-[14rem] items-center gap-1 rounded-md border bg-muted/40 px-1.5 py-0.5 text-xs font-medium text-foreground"
+      title={label}
+    >
+      <MapPin className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="truncate">
+        {warehouse.name}
+        {storageLocation ? <span className="text-primary"> › {storageLocation.name}</span> : null}
+      </span>
+    </span>
   );
 }

@@ -81,6 +81,8 @@ const newProductSchema = z.object({
   name: z.string().trim().min(1, 'Product name is required').max(200),
   unit: z.string().trim().max(30).nullable().optional(),
   price: z.string().trim().max(30).nullable().optional(),
+  /** The rack / shelf chosen for this line; becomes the product's usual spot. */
+  storageLocationId: z.string().uuid('Invalid storageLocationId').nullable().optional(),
 });
 
 /** A store to create for a shop that has none yet. Both parts optional. */

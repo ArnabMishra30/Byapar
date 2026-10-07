@@ -1,4 +1,5 @@
 import { ApiError } from '../../utils/api-error.js';
+import { assertLocationInWarehouse } from '../storage-locations/storage-location.service.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
 import {
   add,
@@ -65,6 +66,14 @@ export function toPublicMovement(movement) {
     type: movement.type,
     product: { id: movement.product.id, name: movement.product.name, sku: movement.product.sku },
     warehouse: { id: movement.warehouse.id, name: movement.warehouse.name, code: movement.warehouse.code },
+    storageLocation: movement.storageLocation
+      ? {
+          id: movement.storageLocation.id,
+          name: movement.storageLocation.name,
+          code: movement.storageLocation.code,
+          type: movement.storageLocation.type,
+        }
+      : null,
     quantity: toMoneyString(movement.quantity, 3),
     unitCost: toMoneyString(movement.unitCost, 4),
     totalCost: toMoneyString(movement.totalCost, 2),
@@ -128,6 +137,14 @@ async function assertProductAndWarehouseUsable(companyId, productId, warehouseId
       { field: 'body.warehouseId', message: 'Warehouse does not exist in this company' },
     ]);
   }
+  // A combo has no stock of its own: its contents are counted instead.
+  if (product.isCombo) {
+    throw ApiError.business(
+      422,
+      'COMBO_HAS_NO_STOCK',
+      `"${product.name}" is a combo. Add or adjust stock of the items inside it instead.`,
+    );
+  }
   if (!product.isActive) {
     throw ApiError.business(422, 'PRODUCT_INACTIVE', 'Cannot record stock for an inactive product');
   }
@@ -139,6 +156,19 @@ async function assertProductAndWarehouseUsable(companyId, productId, warehouseId
 }
 
 // --- writes ----------------------------------------------------------------
+
+/**
+ * The product's usual storage location, when it is in this warehouse.
+ * A product kept on "Rack 1" of the main store says nothing about the godown.
+ */
+async function defaultLocationFor(tx, companyId, productId, warehouseId) {
+  const product = await tx.product.findFirst({
+    where: { id: productId, companyId },
+    select: { storageLocation: { select: { id: true, warehouseId: true, isActive: true } } },
+  });
+  const location = product?.storageLocation;
+  return location && location.isActive && location.warehouseId === warehouseId ? location.id : null;
+}
 
 /**
  * Applies one stock movement and updates the balance, inside a transaction the
@@ -167,6 +197,7 @@ export async function applyMovementWithinTransaction(
     referenceType,
     referenceId = null,
     notes = null,
+    storageLocationId = null,
     requireNoExistingBalance = false,
     outUnitCostOverride = null,
   },
@@ -228,6 +259,13 @@ export async function applyMovementWithinTransaction(
 
     const roundedQuantityAfter = round(quantityAfter, QUANTITY_DP);
 
+    // WHERE IN THE WAREHOUSE. Explicit when the person recording said so
+    // (opening stock, adjustments); otherwise the product's usual spot, if that
+    // spot is in this warehouse. A tag only - it changes no quantity or cost.
+    const locationId = storageLocationId
+      ? await assertLocationInWarehouse(companyId, warehouseId, storageLocationId, tx)
+      : await defaultLocationFor(tx, companyId, productId, warehouseId);
+
     if (existing) {
       await inventoryRepository.updateBalance(tx, existing.id, {
         quantity: roundedQuantityAfter,
@@ -258,6 +296,7 @@ export async function applyMovementWithinTransaction(
       referenceType,
       referenceId,
       notes,
+      storageLocationId: locationId,
       createdById: userId,
     });
   })();
@@ -324,6 +363,7 @@ export async function createOpeningStock(currentUser, input) {
     unitCost: input.unitCost,
     referenceType: REFERENCE_TYPE.OPENING_STOCK,
     notes: input.notes ?? null,
+    storageLocationId: input.storageLocationId ?? null,
     requireNoExistingBalance: true,
   });
 
@@ -348,6 +388,7 @@ export async function createAdjustment(currentUser, input) {
     unitCost: isIncoming ? input.unitCost : null,
     referenceType: REFERENCE_TYPE.STOCK_ADJUSTMENT,
     notes: input.notes ?? null,
+    storageLocationId: input.storageLocationId ?? null,
   });
 
   return toPublicMovement(movement);
@@ -416,7 +457,7 @@ async function assertExistsForRead(companyId, productId, warehouseId) {
 }
 
 export async function listMovements(currentUser, query) {
-  const { page, limit, productId, warehouseId, type, fromDate, toDate } = query;
+  const { page, limit, productId, warehouseId, storageLocationId, type, fromDate, toDate } = query;
   const { skip, take } = toSkipTake({ page, limit });
 
   const { items, total } = await inventoryRepository.listMovementsByCompany(currentUser.companyId, {
@@ -424,6 +465,7 @@ export async function listMovements(currentUser, query) {
     take,
     productId,
     warehouseId,
+    storageLocationId,
     type,
     fromDate,
     toDate,

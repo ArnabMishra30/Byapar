@@ -2,6 +2,7 @@ import { ApiError } from '../../utils/api-error.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
 import { hashPassword } from '../auth/auth.service.js';
 import * as userRepository from './user.repository.js';
+import { resolveStaffAccess } from './shop-permissions.js';
 
 // Business rules for user management. No Prisma calls here - see user.repository.js.
 //
@@ -52,6 +53,11 @@ export async function createUser(currentUser, input) {
     email: input.email,
     name: input.name,
     role: input.role,
+    // A staff member gets a role and permission list from day one. The owner
+    // has everything and needs neither.
+    ...(input.role === 'STAFF' && (input.shopRole || input.permissions)
+      ? resolveStaffAccess(input)
+      : {}),
     passwordHash: await hashPassword(input.password),
     // Always the admin's own company. Never taken from the request.
     companyId: currentUser.companyId,
@@ -72,7 +78,19 @@ export async function updateUser(currentUser, id, input) {
     await assertNotLastActiveAdmin(currentUser.companyId, target, 'change the role of');
   }
 
-  return userRepository.updateByIdAndCompany(id, currentUser.companyId, input);
+  const { shopRole, permissions, ...rest } = input;
+  const data = { ...rest };
+  const finalRole = input.role ?? target.role;
+  if (finalRole === 'STAFF' && (shopRole || permissions)) {
+    Object.assign(
+      data,
+      resolveStaffAccess({ shopRole: shopRole ?? target.shopRole ?? 'CUSTOM', permissions }),
+    );
+  }
+  // Made owner: a staff permission list no longer means anything.
+  if (finalRole === 'ADMIN') Object.assign(data, { shopRole: null, permissions: [] });
+
+  return userRepository.updateByIdAndCompany(id, currentUser.companyId, data);
 }
 
 /** @param {AuthUser} currentUser */

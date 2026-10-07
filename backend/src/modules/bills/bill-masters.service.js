@@ -251,6 +251,8 @@ export async function createProductsFromBill(currentUser, products = []) {
         unitId,
         // The price off the bill is a starting point the shop can correct later.
         ...(product.price ? { purchasePrice: product.price } : {}),
+        // The rack chosen on the bill becomes where this product is usually kept.
+        ...(product.storageLocationId ? { storageLocationId: product.storageLocationId } : {}),
       });
       created.set(product.index, record.id);
     } catch (error) {

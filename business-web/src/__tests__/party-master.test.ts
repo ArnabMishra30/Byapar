@@ -116,3 +116,56 @@ describe("navigation", () => {
     expect(hrefs).toContain(ROUTES.newParty);
   });
 });
+
+describe("bill confirm with a rack per line", () => {
+  const line = (description: string) => ({
+    description,
+    hsnCode: null,
+    quantity: "2",
+    unit: null,
+    unitPrice: "10",
+    discount: null,
+    taxRate: null,
+    lineTotal: null,
+  });
+  const data: ExtractedBill = {
+    partyName: null, partyGstin: null, partyPhone: null, partyAddress: null,
+    invoiceNumber: "B-1", invoiceDate: "2026-09-22", subtotal: null, totalTax: null,
+    totalDiscount: null, grandTotal: null, amountPaid: null, balanceDue: null,
+    lines: [line("Rice"), line("Curd"), line("Skipped")],
+    confidence: null, notes: null,
+  };
+
+  it("puts the rack on each item and on the new product, keeping indexes aligned", () => {
+    const payload = buildConfirmPayload({
+      data,
+      direction: "IN",
+      partyId: "s1",
+      warehouseId: "w1",
+      lineProductIds: ["p1", "", ""],
+      lineLocationIds: ["rack1", "fridge", ""],
+      createLine: [false, true, false],
+      createParty: false,
+    });
+    const items = payload.document.items as Record<string, unknown>[];
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ productId: "p1", storageLocationId: "rack1" });
+    expect(items[1]).toMatchObject({ storageLocationId: "fridge" });
+    expect(payload.newProducts).toEqual([
+      { index: 1, name: "Curd", unit: null, price: "10", storageLocationId: "fridge" },
+    ]);
+  });
+
+  it("sends no rack when none is chosen, so the product's usual spot applies", () => {
+    const payload = buildConfirmPayload({
+      data: { ...data, lines: [line("Rice")] },
+      direction: "OUT",
+      partyId: "c1",
+      warehouseId: "w1",
+      lineProductIds: ["p1"],
+      createLine: [false],
+      createParty: false,
+    });
+    expect((payload.document.items as Record<string, unknown>[])[0]).not.toHaveProperty("storageLocationId");
+  });
+});

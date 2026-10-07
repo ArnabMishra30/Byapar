@@ -8,6 +8,7 @@ import { NAVIGATION, type NavItem, type NavSection } from "@/lib/constants";
 import { useAuth } from "@/lib/auth/auth-context";
 import { NavIcon } from "./nav-icon";
 import { cn } from "@/lib/utils";
+import type { Capability } from "@/lib/permissions";
 
 /**
  * The navigation, filtered for who is looking at it.
@@ -21,18 +22,29 @@ import { cn } from "@/lib/utils";
  *
  * The backend refuses the underlying requests regardless of what is drawn here.
  */
-function visibleItems(items: NavItem[], isAdmin: boolean, isGstEnabled: boolean) {
+function visibleItems(
+  items: NavItem[],
+  isAdmin: boolean,
+  isGstEnabled: boolean,
+  can?: (capability: Capability) => boolean,
+) {
   return items.filter((item) => {
     if (item.requireGst && !isGstEnabled) return false;
     if (item.adminOnly && !isAdmin) return false;
+    // A staff member's own permissions, as the owner set them.
+    if (item.requires && can && !can(item.requires)) return false;
     return true;
   });
 }
 
-export function visibleSections(isAdmin: boolean, isGstEnabled: boolean): NavSection[] {
+export function visibleSections(
+  isAdmin: boolean,
+  isGstEnabled: boolean,
+  can?: (capability: Capability) => boolean,
+): NavSection[] {
   return NAVIGATION.map((section) => ({
     ...section,
-    items: visibleItems(section.items, isAdmin, isGstEnabled),
+    items: visibleItems(section.items, isAdmin, isGstEnabled, can),
   })).filter((section) => {
     if (section.requireGst && !isGstEnabled) return false;
     if (section.adminOnly && !isAdmin) return false;
@@ -69,8 +81,8 @@ function readCollapsed(): string[] {
 
 export function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const { isAdmin, isGstEnabled } = useAuth();
-  const sections = visibleSections(isAdmin, isGstEnabled);
+  const { isAdmin, isGstEnabled, can } = useAuth();
+  const sections = visibleSections(isAdmin, isGstEnabled, can);
   const current = activeHref(pathname, sections);
 
   // Sections fold away so a long menu stays scannable. The section holding

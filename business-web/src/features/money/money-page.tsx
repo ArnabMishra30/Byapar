@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MoneyAccountSelect } from "@/components/shared/money-account-select";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -463,6 +464,8 @@ function PaymentForm({
   });
   const openBills = bills.data?.items ?? [];
 
+  // Which cash / bank / UPI account. Blank: the main Cash or Bank, by method.
+  const [moneyAccountId, setMoneyAccountId] = React.useState("");
   const typed = Object.values(allocations).filter((value) => value.trim() !== "");
   const left = leftToAssign(amount, typed);
   const overAssigned = left.startsWith("-");
@@ -474,6 +477,7 @@ function PaymentForm({
         paymentDate,
         amount: amount.trim(),
         paymentMethod: method,
+        ...(moneyAccountId ? { moneyAccountId } : {}),
         ...(reference.trim() ? { referenceNumber: reference.trim() } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         allocations: Object.entries(allocations)
@@ -613,6 +617,12 @@ function PaymentForm({
                         </option>
                       ))}
                     </NativeSelect>
+                  </Field>
+                  <Field
+                    label={config.capability === "money.receive" ? "Into account" : "From account"}
+                    htmlFor="money-account"
+                  >
+                    <MoneyAccountSelect id="money-account" value={moneyAccountId} onChange={setMoneyAccountId} />
                   </Field>
                   <Field label="Reference" htmlFor="money-ref" hint="Cheque or UPI number" error={errors.referenceNumber}>
                     <Input id="money-ref" value={reference} onChange={(event) => setReference(event.target.value)} />

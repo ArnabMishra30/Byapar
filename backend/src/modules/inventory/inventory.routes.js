@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as inventoryController from './inventory.controller.js';
 import {
   openingStockSchema,
@@ -34,14 +35,14 @@ inventoryRoutes.get(
 
 inventoryRoutes.post(
   '/opening-stock',
-  requireRole('ADMIN'),
+  requireShopPermission('STOCK_ADJUST'),
   validate({ body: openingStockSchema }),
   inventoryController.createOpeningStock,
 );
 
 inventoryRoutes.post(
   '/adjustments',
-  requireRole('ADMIN'),
+  requireShopPermission('STOCK_ADJUST'),
   validate({ body: adjustmentSchema }),
   inventoryController.createAdjustment,
 );

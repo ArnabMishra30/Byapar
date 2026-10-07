@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as customerPaymentController from './customer-payment.controller.js';
 import {
   createCustomerPaymentSchema,
@@ -31,28 +32,28 @@ customerPaymentRoutes.get(
 
 customerPaymentRoutes.post(
   '/',
-  requireRole('ADMIN'),
+  requireShopPermission('MONEY_RECEIVE'),
   validate({ body: createCustomerPaymentSchema }),
   customerPaymentController.create,
 );
 
 customerPaymentRoutes.patch(
   '/:id',
-  requireRole('ADMIN'),
+  requireShopPermission('MONEY_RECEIVE'),
   validate({ params: idParamSchema, body: updateCustomerPaymentSchema }),
   customerPaymentController.update,
 );
 
 customerPaymentRoutes.post(
   '/:id/post',
-  requireRole('ADMIN'),
+  requireShopPermission('MONEY_RECEIVE'),
   validate({ params: idParamSchema }),
   customerPaymentController.post,
 );
 
 customerPaymentRoutes.post(
   '/:id/cancel',
-  requireRole('ADMIN'),
+  requireShopPermission('MONEY_RECEIVE'),
   validate({ params: idParamSchema }),
   customerPaymentController.cancel,
 );

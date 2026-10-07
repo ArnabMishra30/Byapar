@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { ComboBuilderDialog } from "@/features/products/combo-builder";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Info, Loader2, Lock, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Info, Loader2, Lock, Package, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { customersApi, suppliersApi, warehousesApi, ApiError } from "@/lib/api";
 import { PageHeader } from "@/components/shared/page-header";
@@ -126,6 +127,7 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
   const router = useRouter();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
+  const { can } = useAuth();
   const isEdit = Boolean(initial);
   const docId = initial ? String(initial.id) : undefined;
 
@@ -148,6 +150,7 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
     return items.length > 0 ? items.map((item) => lineFromItem(item, config.amountField)) : [emptyLine()];
   });
   const [errors, setErrors] = React.useState<Record<string, string>>({});
+  const [comboOpen, setComboOpen] = React.useState(false);
 
   // ?customerId= / ?supplierId= from a party page: start the bill for them.
   const prefillId = !isEdit ? searchParams?.get(config.prefillParam) ?? "" : "";
@@ -220,8 +223,10 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
       }
       // One line per product: the backend refuses duplicates, so catch it
       // here with a message that points at the row.
-      if (seen.has(line.productId)) next[`prod-${line.key}`] = "This item is already on the bill";
-      seen.add(line.productId);
+      // One paid and one free line per item are allowed (Buy 1 get 1 of the same).
+      const seenKey = `${line.productId}:${line.isFree ? "free" : "paid"}`;
+      if (seen.has(seenKey)) next[`prod-${line.key}`] = "This item is already on the bill";
+      seen.add(seenKey);
     });
 
     setErrors(next);
@@ -401,6 +406,33 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
               Add item
             </Button>
           </CardHeader>
+          {kind === "sale" ? (
+            <div className="-mt-1 flex justify-end px-6">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="min-h-[44px] gap-1.5 text-primary sm:min-h-0"
+                onClick={() => setComboOpen(true)}
+              >
+                <Package className="h-4 w-4" />
+                Make a combo
+              </Button>
+            </div>
+          ) : null}
+          <ComboBuilderDialog
+            open={comboOpen}
+            onOpenChange={setComboOpen}
+            onCreated={(combo) =>
+              setLines((prev) => {
+                const line = { ...emptyLine(), productId: combo.id, productLabel: combo.name, amount: combo.price };
+                // Fill an untouched empty first line rather than leaving it blank.
+                const blank = prev.findIndex((l) => !l.productId);
+                if (blank >= 0) return prev.map((l, i) => (i === blank ? { ...line, key: l.key } : l));
+                return [...prev, line];
+              })
+            }
+          />
           <CardContent className="space-y-3">
             {errors.lines || errors.items ? (
               <p className="text-xs text-destructive">{errors.lines || errors.items}</p>
@@ -427,6 +459,8 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
                   index={index}
                   line={line}
                   amountLabel={config.amountLabel}
+                  docKind={kind}
+                  canGiveFree={kind === "sale" && can("sales.discount")}
                   canRemove={lines.length > 1}
                   errors={errors}
                   onChange={(patch) => setLine(line.key, patch)}
@@ -487,6 +521,8 @@ function LineEditor({
   index,
   line,
   amountLabel,
+  docKind,
+  canGiveFree,
   canRemove,
   errors,
   onChange,
@@ -495,6 +531,10 @@ function LineEditor({
   index: number;
   line: LineRow;
   amountLabel: string;
+  /** Purchases buy ordinary items only; a combo is never bought as such. */
+  docKind: DocKind;
+  /** Show the "Free" switch (sales, for someone who may give discounts). */
+  canGiveFree: boolean;
   canRemove: boolean;
   errors: Record<string, string>;
   onChange: (patch: Partial<LineRow>) => void;
@@ -527,12 +567,26 @@ function LineEditor({
         <span className={label}>Item</span>
         <EntitySelect
           kind="product"
+          productKind={docKind === "purchase" ? "ITEM" : "ALL"}
           value={line.productId}
           valueLabel={line.productLabel}
           invalid={Boolean(errors[`prod-${line.key}`])}
           onChange={(id, name) => onChange({ productId: id, productLabel: name, taxId: null })}
         />
         <LineError message={errors[`prod-${line.key}`]} />
+        {line.offerId ? (
+          <p className="text-xs font-medium text-success">FREE · {line.offerName ?? "Offer"}</p>
+        ) : canGiveFree ? (
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-primary"
+              checked={Boolean(line.isFree)}
+              onChange={(event) => onChange({ isFree: event.target.checked, offerId: null })}
+            />
+            Give this free (stock still goes out)
+          </label>
+        ) : null}
       </div>
 
       {/* Two columns on a phone; from md up these join the parent's grid. */}
@@ -556,8 +610,9 @@ function LineEditor({
           </label>
           <Input
             id={amtId}
+            disabled={line.isFree}
             inputMode="decimal"
-            value={line.amount}
+            value={line.isFree ? "FREE" : line.amount}
             placeholder="0.00"
             aria-invalid={Boolean(errors[amtId]) || undefined}
             onChange={(e) => onChange({ amount: e.target.value })}

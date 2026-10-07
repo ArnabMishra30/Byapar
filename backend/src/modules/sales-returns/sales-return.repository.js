@@ -114,9 +114,11 @@ export async function lockForPosting(tx, id, companyId) {
  */
 export async function findManyByCompany(
   companyId,
-  { skip, take, search, salesInvoiceId, customerId, status, fromDate, toDate },
+  { skip, take, search, salesInvoiceId, customerId, status, fromDate, toDate, createdById },
 ) {
   const where = { companyId };
+  // A biller without "see everyone's sales" sees only their own.
+  if (createdById) where.createdById = createdById;
 
   if (search) {
     where.OR = [

@@ -348,7 +348,10 @@ export const purchaseReturnApi = {
 // --- staff ------------------------------------------------------------------
 
 export const staffAdminApi = {
-  update: (id: string, body: { name?: string; role?: "ADMIN" | "STAFF" }) =>
+  update: (
+    id: string,
+    body: { name?: string; role?: "ADMIN" | "STAFF"; shopRole?: string; permissions?: string[] },
+  ) =>
     patchOne<Record<string, unknown>>(`/users/${id}`, "user", body),
   setStatus: (id: string, isActive: boolean) =>
     patchOne<Record<string, unknown>>(`/users/${id}/status`, "user", { isActive }),

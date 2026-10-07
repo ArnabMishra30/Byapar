@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as accountingController from './accounting.controller.js';
 import {
   createAccountSchema,
@@ -32,6 +33,8 @@ import { idParamSchema } from '../../utils/validation.js';
 
 export const accountRoutes = Router();
 accountRoutes.use(requireAuth);
+// Shop-wide figures: only for people allowed to see reports.
+accountRoutes.use(requireShopPermission('REPORTS_VIEW'));
 
 accountRoutes.get(
   '/',
@@ -72,6 +75,8 @@ accountRoutes.delete(
 
 export const journalEntryRoutes = Router();
 journalEntryRoutes.use(requireAuth);
+// Shop-wide figures: only for people allowed to see reports.
+journalEntryRoutes.use(requireShopPermission('REPORTS_VIEW'));
 
 // Declared before /:id so "source" is never read as an entry id.
 journalEntryRoutes.get(
@@ -105,6 +110,8 @@ journalEntryRoutes.post(
 
 export const generalLedgerRoutes = Router();
 generalLedgerRoutes.use(requireAuth);
+// Shop-wide figures: only for people allowed to see reports.
+generalLedgerRoutes.use(requireShopPermission('REPORTS_VIEW'));
 
 // Declared before the list route so it is matched exactly.
 generalLedgerRoutes.get(
@@ -123,6 +130,8 @@ generalLedgerRoutes.get(
 
 export const accountingRoutes = Router();
 accountingRoutes.use(requireAuth);
+// Shop-wide figures: only for people allowed to see reports.
+accountingRoutes.use(requireShopPermission('REPORTS_VIEW'));
 
 accountingRoutes.get(
   '/trial-balance',

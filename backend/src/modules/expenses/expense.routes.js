@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as expenseController from './expense.controller.js';
 import {
   createExpenseSchema,
@@ -26,28 +27,29 @@ expenseRoutes.use(requireAuth);
 // Declared before /:id so "categories" is never read as an expense id.
 expenseRoutes.get('/categories', expenseController.listCategories);
 
-expenseRoutes.get('/', validate({ query: listExpensesQuerySchema }), expenseController.list);
+expenseRoutes.get('/', requireShopPermission('EXPENSES_MANAGE', 'REPORTS_VIEW', 'LEGACY_DRAFTS'), validate({ query: listExpensesQuerySchema }), expenseController.list);
 
-expenseRoutes.get('/:id', validate({ params: idParamSchema }), expenseController.get);
+expenseRoutes.get('/:id', requireShopPermission('EXPENSES_MANAGE', 'REPORTS_VIEW', 'LEGACY_DRAFTS'), validate({ params: idParamSchema }), expenseController.get);
 
-expenseRoutes.post('/', validate({ body: createExpenseSchema }), expenseController.create);
+expenseRoutes.post('/', requireShopPermission('EXPENSES_MANAGE', 'LEGACY_DRAFTS'), validate({ body: createExpenseSchema }), expenseController.create);
 
 expenseRoutes.patch(
   '/:id',
+  requireShopPermission('EXPENSES_MANAGE', 'LEGACY_DRAFTS'),
   validate({ params: idParamSchema, body: updateExpenseSchema }),
   expenseController.update,
 );
 
 expenseRoutes.post(
   '/:id/post',
-  requireRole('ADMIN'),
+  requireShopPermission('EXPENSES_MANAGE'),
   validate({ params: idParamSchema }),
   expenseController.post,
 );
 
 expenseRoutes.post(
   '/:id/cancel',
-  requireRole('ADMIN'),
+  requireShopPermission('EXPENSES_MANAGE'),
   validate({ params: idParamSchema }),
   expenseController.cancel,
 );
@@ -56,7 +58,7 @@ expenseRoutes.post(
 // journal entry and leaves the original exactly as it was.
 expenseRoutes.post(
   '/:id/reverse',
-  requireRole('ADMIN'),
+  requireShopPermission('EXPENSES_MANAGE'),
   validate({ params: idParamSchema }),
   expenseController.reverse,
 );

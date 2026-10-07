@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as creditController from './credit.controller.js';
 import {
   statementQuerySchema,
@@ -22,6 +23,8 @@ import { requireAuth } from '../../middlewares/require-auth.js';
 export const creditCollectionRoutes = Router();
 
 creditCollectionRoutes.use(requireAuth);
+// Shop-wide figures: only for people allowed to see reports.
+creditCollectionRoutes.use(requireShopPermission('REPORTS_VIEW'));
 
 creditCollectionRoutes.get(
   '/collections',
@@ -49,6 +52,8 @@ creditCollectionRoutes.get(
 export const customerCreditRoutes = Router();
 
 customerCreditRoutes.use(requireAuth);
+// Shop-wide figures: only for people allowed to see reports.
+customerCreditRoutes.use(requireShopPermission('REPORTS_VIEW'));
 
 customerCreditRoutes.get(
   '/:id/statement',
@@ -66,6 +71,8 @@ customerCreditRoutes.get(
 export const supplierCreditRoutes = Router();
 
 supplierCreditRoutes.use(requireAuth);
+// Shop-wide figures: only for people allowed to see reports.
+supplierCreditRoutes.use(requireShopPermission('REPORTS_VIEW'));
 
 supplierCreditRoutes.get(
   '/:id/statement',

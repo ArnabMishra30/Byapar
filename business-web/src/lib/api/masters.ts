@@ -47,6 +47,14 @@ export const productsApi = {
     patchOne<Product>(`/products/${id}`, "product", body),
   setStatus: (id: string, isActive: boolean) =>
     patchOne<Product>(`/products/${id}/status`, "product", { isActive }),
+  /** A combo made while billing; saved for later only if asked (and allowed). */
+  comboOnTheSpot: (body: {
+    name: string;
+    sellingPrice: string;
+    taxId?: string | null;
+    components: { productId: string; quantity: string }[];
+    saveForLater?: boolean;
+  }) => postOne<Product>("/products/combos/on-the-spot", "product", body),
 };
 
 export const warehousesApi = {

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as supplierController from './supplier.controller.js';
 import {
   listSuppliersQuerySchema,
@@ -20,21 +21,21 @@ supplierRoutes.get('/:id', validate({ params: idParamSchema }), supplierControll
 
 supplierRoutes.post(
   '/',
-  requireRole('ADMIN'),
+  requireShopPermission('PARTIES_MANAGE'),
   validate({ body: createSupplierSchema }),
   supplierController.create,
 );
 
 supplierRoutes.patch(
   '/:id',
-  requireRole('ADMIN'),
+  requireShopPermission('PARTIES_MANAGE'),
   validate({ params: idParamSchema, body: updateSupplierSchema }),
   supplierController.update,
 );
 
 supplierRoutes.patch(
   '/:id/status',
-  requireRole('ADMIN'),
+  requireShopPermission('PARTIES_MANAGE'),
   validate({ params: idParamSchema, body: statusSchema }),
   supplierController.updateStatus,
 );

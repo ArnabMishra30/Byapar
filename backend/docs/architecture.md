@@ -3632,3 +3632,142 @@ service. The model's text never becomes a party id on its own.
   free on each side it uses.
 - Changing a party's name changes the name shown on its old documents, as renaming
   a customer always has; amounts, taxes and journal entries are unchanged.
+
+## Storage locations (rack, shelf, drawer, fridge)
+
+`StorageLocation` belongs to one warehouse (`@@unique([companyId, warehouseId,
+name])`). `Product.storageLocationId` is where a product is usually kept;
+`StockMovement.storageLocationId` is where a particular movement happened.
+Both are nullable, added by migration `20261005090000_storage_locations`
+(additive, no backfill: existing rows simply have no location).
+
+**A tag, not a bin.** `InventoryBalance` stays per product per warehouse, so
+costing, posting, returns, the GL and every report are unchanged. The tag is
+chosen in `inventory.service.applyMovementWithinTransaction`, the single point
+every movement passes through: an explicit `storageLocationId` (checked to be
+this company's and in this warehouse), else the product's usual location if it
+is active and in the movement's warehouse, else none.
+
+Known limitation: no per-location quantities, so "how many are on Rack 1" and
+moving stock between racks are not supported. That would need balances keyed by
+location and a transfer document.
+
+## Share links (bill / log book for a customer or supplier)
+
+`ShareLink` (migration `20261006090000_share_links`, additive) holds a random
+24-byte base64url token, the target (one sales invoice, optionally with the
+customer's account; or a customer or supplier), `revokedAt`, and view counters.
+The public endpoint `GET /api/v1/public/share/:token` is the only shop-data
+route without `requireAuth`; the token is the credential. Everything it reads is
+scoped to the link's company and party, and it reuses the existing statement
+service and the invoice's receivable, so the figures are the ledger's, not a
+second calculation. Only an allow-listed set of fields leaves the server.
+
+Limitations: anyone holding the link can open it (by design, like a WhatsApp'd
+PDF); the owner previewing their own link counts as a view; there is no expiry
+other than "stop sharing"; purchase bills inside a supplier log book cannot be
+opened individually.
+
+## Per-user permissions for shop staff
+
+Login roles are unchanged: ADMIN (shop owner, everything) and STAFF. A STAFF
+user has `shopRole` (CASHIER | STOREKEEPER | ACCOUNTANT | MANAGER | CUSTOM) and
+`permissions` (migration `20261006150000_shop_staff_roles`). The vocabulary and
+templates live in `modules/users/shop-permissions.js`:
+
+SALES_CREATE, SALES_POST, SALES_DISCOUNT, SALES_CANCEL (sales returns), SALES_VIEW_ALL,
+MONEY_RECEIVE, MONEY_PAY, PURCHASES_MANAGE, PARTIES_MANAGE, PRODUCTS_MANAGE,
+STOCK_ADJUST, EXPENSES_MANAGE, BILLS_CONFIRM, SHARE_LINKS, REPORTS_VIEW.
+
+- Routes use `requireShopPermission(...anyOf)`; ADMIN passes all, platform users none.
+- A STAFF user with `shopRole` null is a pre-existing account and gets
+  `LEGACY_STAFF` (draft sales, reports, and the internal LEGACY_DRAFTS), i.e.
+  exactly the old staff behaviour.
+- Without SALES_VIEW_ALL a user sees only sales, receipts and sales returns they
+  created (list filtered by `createdById`; someone else's id is 404) and cannot
+  act on others' drafts. REPORTS_VIEW guards the dashboard, reports, credit book,
+  accounting/GST reports, statements and ledgers (shop-wide figures).
+- SALES_DISCOUNT: without it a sale line may not carry a discount or a price
+  below the product's selling price (403 `DISCOUNT_NOT_ALLOWED`).
+- Bill confirm needs BILLS_CONFIRM plus PURCHASES_MANAGE (IN) or SALES_POST (OUT).
+- `GET /reports/billers?date=` (REPORTS_VIEW): per person, completed sales by
+  invoice date and posted receipts by payment date, split by method.
+  `GET /my-day` (any shop user): the same for the caller only.
+- `/auth/me` returns `shopPermissions`; business-web's `can()` maps capabilities
+  to them (UX only).
+
+## Combos
+
+A combo is a `Product` with `isCombo`; its contents are `ComboComponent` rows
+(component product + quantity per ONE combo). Migration `20261007090000_combos`.
+
+- **No stock of its own.** Opening stock / adjustments / purchases of a combo are
+  refused (`COMBO_HAS_NO_STOCK`, `COMBO_NOT_PURCHASABLE`). A combo cannot contain a
+  combo (`COMBO_IN_COMBO`). Availability = min over contents of floor(stock / qty),
+  per warehouse, computed on read.
+- **Saved** combos: `POST /products` with `isCombo: true, components`. **On the
+  spot**: `POST /products/combos/on-the-spot` (SALES_CREATE/SALES_POST) creates an
+  `isAdHoc` combo hidden from lists and bill matching; `saveForLater` (needs
+  PRODUCTS_MANAGE) keeps it as a saved combo.
+- **Posting a sale** (`sales.service post` → `postComboLine`): each content is
+  locked, checked and moved out through the ordinary inventory service at the
+  moving average, labelled "Sales invoice X - <combo>". What left is frozen in
+  `SalesInvoiceItemComponent` (qty per unit, qty, cost). The line's COGS is the sum
+  of those movements, and the journal uses the movements as always, so the GL
+  needs nothing new. A short content refuses the whole invoice.
+- **Returns** put each content back at its frozen cost, proportional to the
+  quantity returned. Editing a saved combo later never changes posted bills.
+- **Price trace.** Every sale line stores `listPriceSnapshot` (the product's own
+  price when written). The API returns `listPrice` / `priceChanged`; the bill
+  shows "Price changed from ₹X", and `/reports/billers` and `/my-day` count
+  `priceChangedCount` per person (the bill's createdBy). Price changes below list
+  still need SALES_DISCOUNT.
+- GST: the combo line is taxed at the combo product's own tax rate / HSN.
+
+## Offers (buy X get Y free) and free lines
+
+`Offer` (buy product + qty, free product + qty, optional start/end dates,
+isActive); migration `20261007150000_offers`. Same product (B1G1), a different
+product, or any ratio. Sale lines gained `isFree` and `offerId`; the unique key
+on `sales_invoice_items` is now (invoice, product, isFree) so a product can be on
+a bill once paid and once free.
+
+- **Applied by the server** in `sales.service createDraft/updateDraft` via
+  `offer.service.applyOffers`: free lines that came from an offer are discarded
+  and recomputed from the paid quantities (floor(paid / buyQty) x freeQty, newest
+  active offer per bought product, inside its dates). A screen cannot inflate them.
+- **By hand**: a line with `isFree` and no offer; needs SALES_DISCOUNT.
+- A free line is priced 0, no discount, no tax; it still leaves stock through the
+  normal posting path (combos included) and its COGS is frozen like any line, so
+  profit reflects the giveaway. Returns work as usual (credit 0).
+- `listPriceSnapshot` still records the product price, but free lines never
+  count as price changes.
+- `GET /offers` (any shop user), `POST /offers`, `PATCH /offers/:id/status`
+  (PRODUCTS_MANAGE). `GET /reports/offers?fromDate&toDate` (REPORTS_VIEW): per
+  offer and per person (by hand), times given, items, and cost at stock-out.
+
+## Money accounts (several cash / bank / UPI accounts)
+
+A money account is a real ledger account: ASSET, parented under the system Cash
+(1000) or Bank (1010) account, code `1000-NN` / `1010-NN`
+(`modules/money-accounts`). The system Cash and Bank are the first two, so older
+documents are unchanged. Because they sit under Cash/Bank, the Cash & Bank report
+and dashboard include them with no special code; balances are always ledger sums.
+
+- `GET /money-accounts` (shop users) with balances; `POST` (ADMIN) with optional
+  opening balance → JE Dr account / Cr Owner's Capital, sourceType
+  `MONEY_ACCOUNT_OPENING`; `PATCH /:id` rename / switch off (not the system two).
+- Customer / supplier payments take optional `moneyAccountId` (migration
+  `20261007200000_money_accounts`); the GL money line uses it, else Cash/Bank by
+  method as before. Checked at draft and at posting (`assertMoneyAccount`).
+- Expenses take `paymentAccountId` or `paymentParts` [{accountId, amount}] (2-5,
+  must add up; stored in `ExpensePaymentPart`). Posting credits each part;
+  reversal debits each part back.
+- Reference details on a money account (migration
+  `20261008090000_money_account_details`): `bankName`, `accountNumber` (6-18
+  digits), `ifsc` (AAAA0XXXXXX), `upiId` (name@handle), `holderName`. Optional,
+  informational, set on create or `PATCH`. The list returns the full account
+  number to ADMIN and `••••1234` to staff.
+- Transfers: `POST /money-accounts/transfers` (MONEY_PAY) = one JE, sourceType
+  `MONEY_TRANSFER`, Dr to / Cr from; undo = `POST .../transfers/:id/reverse`
+  (ADMIN) via the ordinary journal reversal.

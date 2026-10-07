@@ -29,11 +29,20 @@ const salesItemSchema = z
   .object({
     productId: z.string({ required_error: 'Product is required' }).uuid('Invalid productId'),
     taxId: z.string().uuid('Invalid taxId').nullable().optional(),
+    // The rack / shelf / fridge for this line. Optional.
+    storageLocationId: z.string().uuid('Invalid storageLocationId').nullable().optional(),
     quantity: positiveQuantitySchema,
     // Zero is allowed: free goods and samples are real.
     unitPrice: moneySchema('Unit price'),
     discountType: z.enum(['NONE', 'PERCENTAGE', 'FIXED']).default('NONE'),
     discountValue: moneySchema('Discount value').optional(),
+    /** A free line (price 0). By hand needs the discount permission. */
+    isFree: z.boolean().optional().default(false),
+    /**
+     * Set on a free line that came from a saved offer. Such lines are always
+     * worked out again by the server, so whatever is sent is ignored.
+     */
+    offerId: z.string().uuid().nullable().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.discountType === 'NONE') return;
@@ -93,16 +102,18 @@ const salesBodySchema = z
 
     // One line per product: two lines for the same product would create two
     // confusing stock movements in one document.
+    // A product may appear once as a paid line and once as a free line.
     const seen = new Set();
     data.items.forEach((item, index) => {
-      if (seen.has(item.productId)) {
+      const key = `${item.productId}:${item.isFree ? 'free' : 'paid'}`;
+      if (seen.has(key)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['items', index, 'productId'],
           message: 'This product appears more than once. Combine the lines into one.',
         });
       }
-      seen.add(item.productId);
+      seen.add(key);
     });
   });
 

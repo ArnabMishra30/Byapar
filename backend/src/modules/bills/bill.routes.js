@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import multer from 'multer';
 import * as billController from './bill.controller.js';
 import {
@@ -111,7 +112,7 @@ billRoutes.patch(
 // THE POSTING STEP. Admin only, exactly as posting a purchase or a sale is.
 billRoutes.post(
   '/:id/confirm',
-  requireRole('ADMIN'),
+  requireShopPermission('BILLS_CONFIRM'),
   validate({ params: idParamSchema, body: confirmBillSchema }),
   billController.confirm,
 );

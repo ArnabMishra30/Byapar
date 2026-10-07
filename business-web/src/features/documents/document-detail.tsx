@@ -14,6 +14,7 @@ import { PaidDue } from "@/components/shared/paid-due";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { PrintActions } from "@/components/shared/print-actions";
+import { ShareButton } from "@/features/share/share-dialog";
 import { Can } from "@/components/shared/permission-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -277,6 +278,14 @@ export function DocumentDetail({ kind, id }: { kind: DocKind; id: string }) {
             </Can>
           ) : null}
         </div>
+        {/* Send the customer a link to this bill (and, if chosen, their whole account). */}
+        {kind === "sale" && (isPosted || status === "CANCELLED") ? (
+          <div data-print-hide>
+            <ShareButton
+              target={{ kind: "INVOICE", salesInvoiceId: id, customerName: party?.name, invoiceNumber: number || null }}
+            />
+          </div>
+        ) : null}
         <PrintActions title={`${title} ${number}`.trim()} />
       </div>
 
@@ -528,6 +537,35 @@ function ItemsBlock({
       .filter(Boolean)
       .join(" · ");
 
+  // What a combo line took out of stock, and whether the price was changed
+  // from the product's own - the trace the owner asked for.
+  const extras = (item: Record<string, unknown>) => {
+    const components = (item.components as { name: string; quantityPerUnit: string }[] | undefined) ?? [];
+    const changed = item.priceChanged === true && item.listPrice != null;
+    const offer = item.offer as { name?: string } | null | undefined;
+    const free = item.isFree === true;
+    if (components.length === 0 && !changed && !free) return null;
+    return (
+      <>
+        {free ? (
+          <span className="block text-xs font-semibold text-success">
+            FREE{offer?.name ? ` · ${offer.name}` : " · given by hand"}
+          </span>
+        ) : null}
+        {components.length > 0 ? (
+          <span className="block text-xs text-muted-foreground">
+            Contains: {components.map((c) => `${trimDecimal(c.quantityPerUnit)} × ${c.name}`).join(", ")}
+          </span>
+        ) : null}
+        {changed ? (
+          <span className="block text-xs text-warning">
+            Price changed from <Money value={String(item.listPrice)} />
+          </span>
+        ) : null}
+      </>
+    );
+  };
+
   return (
     <>
       <ul className="divide-y rounded-lg border sm:hidden">
@@ -552,6 +590,7 @@ function ItemsBlock({
               ) : null}
             </p>
             {meta(item) ? <p className="text-xs text-muted-foreground">{meta(item)}</p> : null}
+            {extras(item)}
           </li>
         ))}
       </ul>
@@ -576,6 +615,7 @@ function ItemsBlock({
                 <TableCell>
                   <span className="block font-medium">{name(item)}</span>
                   {meta(item) ? <span className="block text-xs text-muted-foreground">{meta(item)}</span> : null}
+                  {extras(item)}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-right tabular">
                   {trimDecimal(item.quantity)}

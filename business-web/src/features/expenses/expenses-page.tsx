@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MoneyAccountSelect } from "@/components/shared/money-account-select";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, CheckCircle2, Loader2, Plus, RotateCcw } from "lucide-react";
@@ -109,10 +110,17 @@ export function ExpensesPage() {
     expenseAccountId: "",
     amount: "",
     paymentMode: "CASH",
+    paymentAccountId: "",
     description: "",
     supplierId: "",
     supplierLabel: "",
   });
+  // Paid from more than one account: the parts must add up to the amount.
+  const [split, setSplit] = React.useState(false);
+  const [parts, setParts] = React.useState([
+    { accountId: "", amount: "" },
+    { accountId: "", amount: "" },
+  ]);
   const [formErrors, setFormErrors] = React.useState<Record<string, string>>({});
 
   const resetForm = () =>
@@ -121,6 +129,7 @@ export function ExpensesPage() {
       expenseAccountId: "",
       amount: "",
       paymentMode: "CASH",
+      paymentAccountId: "",
       description: "",
       supplierId: "",
       supplierLabel: "",
@@ -133,6 +142,11 @@ export function ExpensesPage() {
         expenseAccountId: form.expenseAccountId,
         amount: form.amount,
         paymentMode: form.paymentMode,
+        ...(split
+          ? { paymentParts: parts.filter((p) => p.accountId).map((p) => ({ accountId: p.accountId, amount: p.amount.trim() })) }
+          : form.paymentAccountId
+            ? { paymentAccountId: form.paymentAccountId }
+            : {}),
         ...(form.description.trim() ? { description: form.description.trim() } : {}),
         ...(form.supplierId ? { supplierId: form.supplierId } : {}),
       }),
@@ -215,7 +229,8 @@ export function ExpensesPage() {
     {
       header: "Paid by",
       hideOnMobile: true,
-      cell: (row) => (row.paymentMode === "CASH" ? "Cash" : "Bank"),
+      // The actual account(s) - "Cash drawer + PhonePe" for a split payment.
+      cell: (row) => row.paidFrom?.name ?? (row.paymentMode === "CASH" ? "Cash" : "Bank"),
     },
     {
       header: "Amount",
@@ -456,6 +471,46 @@ export function ExpensesPage() {
                   <option value="BANK">Bank / UPI</option>
                 </NativeSelect>
               </Field>
+
+              {!split ? (
+                <Field label="Paid from account" htmlFor="paymentAccountId" hint="Which cash box, bank or UPI the money left">
+                  <MoneyAccountSelect
+                    id="paymentAccountId"
+                    value={form.paymentAccountId}
+                    onChange={(value) => setForm({ ...form, paymentAccountId: value })}
+                  />
+                </Field>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Paid from</p>
+                  {parts.map((part, index) => (
+                    <div key={index} className="grid grid-cols-[minmax(0,1fr)_7rem] gap-2">
+                      <MoneyAccountSelect
+                        value={part.accountId}
+                        allowEmpty={false}
+                        onChange={(value) => setParts(parts.map((p, i) => (i === index ? { ...p, accountId: value } : p)))}
+                      />
+                      <Input
+                        aria-label={`Amount from account ${index + 1}`}
+                        inputMode="decimal"
+                        placeholder="₹"
+                        value={part.amount}
+                        onChange={(e) => setParts(parts.map((p, i) => (i === index ? { ...p, amount: e.target.value } : p)))}
+                      />
+                    </div>
+                  ))}
+                  {parts.length < 5 ? (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setParts([...parts, { accountId: "", amount: "" }])}>
+                      + Another account
+                    </Button>
+                  ) : null}
+                  {formErrors.paymentParts ? <p className="text-xs text-destructive">{formErrors.paymentParts}</p> : null}
+                </div>
+              )}
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={split} onChange={(e) => setSplit(e.target.checked)} />
+                Paid from more than one account (e.g. part cash, part UPI)
+              </label>
 
               <Field label="Note" htmlFor="description" hint="Optional">
                 <Input

@@ -23,6 +23,8 @@ export interface NewProduct {
   name: string;
   unit?: string | null;
   price?: string | null;
+  /** The rack chosen for the line; becomes the new product's usual spot. */
+  storageLocationId?: string | null;
 }
 
 /** A store to create for a shop that has none. The server names it if we do not. */
@@ -68,6 +70,11 @@ export interface BuildArgs {
   warehouseId: string;
   /** Chosen product per line, by line index. */
   lineProductIds: string[];
+  /**
+   * Chosen rack / shelf per line, by line index. Blank means "the product's
+   * usual spot", which the server applies when the stock moves.
+   */
+  lineLocationIds?: string[];
   /** Whether each unmatched line should be added as a new product. */
   createLine: boolean[];
   /** Whether an unmatched party should be added. */
@@ -107,6 +114,7 @@ export function buildConfirmPayload({
   partyId,
   warehouseId,
   lineProductIds,
+  lineLocationIds = [],
   createLine,
   createParty,
   linkParty = null,
@@ -126,6 +134,7 @@ export function buildConfirmPayload({
     ...(lineProductIds[lineIndex] ? { productId: lineProductIds[lineIndex] } : {}),
     quantity: line.quantity ?? "0",
     ...(isPurchase ? { unitCost: line.unitPrice ?? "0" } : { unitPrice: line.unitPrice ?? "0" }),
+    ...(lineLocationIds[lineIndex] ? { storageLocationId: lineLocationIds[lineIndex] } : {}),
   }));
 
   // THE MAPPING THAT MATTERS: the index is the item's position in the document,
@@ -134,11 +143,12 @@ export function buildConfirmPayload({
   const newProducts: NewProduct[] = included
     .map(({ line, lineIndex }, itemIndex) => ({ line, lineIndex, itemIndex }))
     .filter(({ lineIndex }) => !lineProductIds[lineIndex])
-    .map(({ line, itemIndex }) => ({
+    .map(({ line, lineIndex, itemIndex }) => ({
       index: itemIndex,
       name: (line.description ?? "").trim(),
       unit: line.unit ?? null,
       price: line.unitPrice ?? null,
+      ...(lineLocationIds[lineIndex] ? { storageLocationId: lineLocationIds[lineIndex] } : {}),
     }));
 
   const partyName = (data.partyName ?? "").trim();

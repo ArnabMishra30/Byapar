@@ -31,6 +31,7 @@ export function findAuthContextById(id) {
       role: true,
       companyId: true,
       permissions: true,
+      shopRole: true,
       isActive: true,
     },
   });

@@ -112,7 +112,7 @@ export function CommandMenu() {
 
 function CommandBody({ onDone }: { onDone: () => void }) {
   const router = useRouter();
-  const { isAdmin, isGstEnabled } = useAuth();
+  const { isAdmin, isGstEnabled, can } = useAuth();
   const [query, setQuery] = React.useState("");
   const [cursor, setCursor] = React.useState(0);
   const term = useDebounced(query.trim());
@@ -124,7 +124,7 @@ function CommandBody({ onDone }: { onDone: () => void }) {
       { id: "a-sale", group: "Actions", label: "New sale", href: ROUTES.newSale, icon: FileText },
       { id: "a-purchase", group: "Actions", label: "New purchase", href: ROUTES.newPurchase, icon: ShoppingCart },
     ];
-    const nav: Result[] = visibleSections(isAdmin, isGstEnabled).flatMap((section) =>
+    const nav: Result[] = visibleSections(isAdmin, isGstEnabled, can).flatMap((section) =>
       section.items.map((item) => ({
         id: `p-${item.href}`,
         group: "Pages",
@@ -141,7 +141,7 @@ function CommandBody({ onDone }: { onDone: () => void }) {
       (entry) =>
         entry.label.toLowerCase().includes(q) || entry.hint?.toLowerCase().includes(q),
     );
-  }, [query, isAdmin, isGstEnabled]);
+  }, [query, isAdmin, isGstEnabled, can]);
 
   const records = useQuery({
     queryKey: ["command-search", term],

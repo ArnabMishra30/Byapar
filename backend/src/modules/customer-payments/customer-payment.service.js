@@ -1,4 +1,6 @@
 import { ApiError } from '../../utils/api-error.js';
+import { assertMoneyAccount } from '../money-accounts/money-account.service.js';
+import { ownRecordsFilter } from '../users/shop-permissions.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
 import { add, subtract, round, toDecimal, toMoneyString, isGreaterThan } from '../../utils/money.js';
 import { withRetryableTransaction } from '../../config/transaction.js';
@@ -68,6 +70,7 @@ export function toPublicPayment(payment) {
     // Money received but not applied to an invoice: credit held for the customer.
     unallocatedAmount: toMoneyString(payment.unallocatedAmount, 2),
     paymentMethod: payment.paymentMethod,
+    moneyAccount: payment.moneyAccount ? { id: payment.moneyAccount.id, name: payment.moneyAccount.name } : null,
     referenceNumber: payment.referenceNumber,
     notes: payment.notes,
     allocations: payment.allocations ? payment.allocations.map(toPublicAllocation) : undefined,
@@ -195,6 +198,7 @@ function assertIsDraft(payment) {
 /** Creates a DRAFT payment. Nothing is settled until it is posted. */
 export async function createDraft(currentUser, input) {
   const { companyId } = currentUser;
+  if (input.moneyAccountId) await assertMoneyAccount(companyId, input.moneyAccountId);
 
   await assertCustomer(companyId, input.customerId);
   const { allocations, allocatedAmount, unallocatedAmount } = await resolveAllocations(
@@ -221,6 +225,7 @@ export async function createDraft(currentUser, input) {
         allocatedAmount,
         unallocatedAmount,
         paymentMethod: input.paymentMethod,
+        moneyAccountId: input.moneyAccountId ?? null,
         referenceNumber: input.referenceNumber ?? null,
         notes: input.notes ?? null,
         status: 'DRAFT',
@@ -236,6 +241,7 @@ export async function createDraft(currentUser, input) {
 /** Replaces a draft. The customer may not be changed. */
 export async function updateDraft(currentUser, id, input) {
   const { companyId } = currentUser;
+  if (input.moneyAccountId) await assertMoneyAccount(companyId, input.moneyAccountId);
 
   const existing = await customerPaymentRepository.findByIdAndCompany(id, companyId);
   if (!existing) {
@@ -268,6 +274,7 @@ export async function updateDraft(currentUser, id, input) {
         allocatedAmount,
         unallocatedAmount,
         paymentMethod: input.paymentMethod,
+        moneyAccountId: input.moneyAccountId ?? null,
         referenceNumber: input.referenceNumber ?? null,
         notes: input.notes ?? null,
       },
@@ -399,11 +406,15 @@ export async function post(currentUser, id) {
     // The general ledger entry, last and in this same transaction. The split
     // between "settled an invoice" and "customer credit" is the same split the
     // sub-ledger just recorded - it is not recalculated here.
+    // The chosen account may have been switched off since the draft.
+    if (locked.moneyAccountId) await assertMoneyAccount(companyId, locked.moneyAccountId, tx);
+
     await glPostingService.recordCustomerPaymentPosted(tx, currentUser, {
       id: locked.id,
       paymentNumber: locked.paymentNumber,
       paymentDate: locked.paymentDate,
       paymentMethod: locked.paymentMethod,
+      moneyAccountId: locked.moneyAccountId ?? null,
       amount: locked.amount,
       allocatedAmount: round(allocatedAmount, MONEY_DP),
       unallocatedAmount: round(subtract(locked.amount, allocatedAmount), MONEY_DP),
@@ -476,6 +487,7 @@ export async function list(currentUser, query) {
     skip,
     take,
     ...filters,
+    createdById: ownRecordsFilter(currentUser) ?? undefined,
   });
 
   return {
@@ -486,7 +498,8 @@ export async function list(currentUser, query) {
 
 export async function getById(currentUser, id) {
   const payment = await customerPaymentRepository.findByIdAndCompany(id, currentUser.companyId);
-  if (!payment) {
+  const own = ownRecordsFilter(currentUser);
+  if (!payment || (own && payment.createdBy?.id !== own)) {
     throw ApiError.business(404, 'CUSTOMER_PAYMENT_NOT_FOUND', 'Customer payment not found');
   }
   return toPublicPayment(payment);

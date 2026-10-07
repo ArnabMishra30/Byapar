@@ -55,6 +55,12 @@ export interface User {
   name: string;
   role: UserRole;
   companyId: string;
+  /** For shop STAFF: the role the owner picked (CASHIER, STOREKEEPER, ...). */
+  shopRole?: string | null;
+  /** Stored per-user permissions (what the owner ticked). */
+  permissions?: string[];
+  /** What this user may actually do, worked out by the server (session only). */
+  shopPermissions?: string[];
   isActive?: boolean;
   lastLoginAt?: string | null;
   createdAt?: string;
@@ -243,6 +249,21 @@ export interface Product {
   purchasePrice?: string;
   sellingPrice?: string;
   reorderLevel?: string;
+  /** A combo: sold as one item, its contents leave stock individually. */
+  isCombo?: boolean;
+  isAdHoc?: boolean;
+  components?: { productId: string; name: string; sku: string | null; unit: string | null; quantity: string }[];
+  /** For a combo: how many can be made from the contents' stock. */
+  availability?: { total: number; byWarehouse: { warehouse: { id: string; name: string }; canMake: number }[] };
+  /** Where it is usually kept: a rack, drawer, fridge inside one store. */
+  storageLocationId?: string | null;
+  storageLocation?: {
+    id: string;
+    name: string;
+    code: string | null;
+    type: string;
+    warehouse: { id: string; name: string } | null;
+  } | null;
   isActive: boolean;
 }
 
@@ -422,5 +443,7 @@ export interface StockMovement {
   notes?: string | null;
   createdAt: string;
   product?: { id: string; name: string; sku: string };
-  warehouse?: { id: string; name: string };
+  warehouse?: { id: string; name: string; code?: string | null };
+  /** The rack, drawer or fridge inside the store, when one was recorded. */
+  storageLocation?: { id: string; name: string; code: string | null; type: string } | null;
 }

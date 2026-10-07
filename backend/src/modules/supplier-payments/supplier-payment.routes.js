@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as supplierPaymentController from './supplier-payment.controller.js';
 import {
   createSupplierPaymentSchema,
@@ -18,40 +19,42 @@ supplierPaymentRoutes.use(requireAuth);
 
 supplierPaymentRoutes.get(
   '/',
+  requireShopPermission('MONEY_PAY', 'REPORTS_VIEW'),
   validate({ query: listSupplierPaymentsQuerySchema }),
   supplierPaymentController.list,
 );
 
 supplierPaymentRoutes.get(
   '/:id',
+  requireShopPermission('MONEY_PAY', 'REPORTS_VIEW'),
   validate({ params: idParamSchema }),
   supplierPaymentController.get,
 );
 
 supplierPaymentRoutes.post(
   '/',
-  requireRole('ADMIN'),
+  requireShopPermission('MONEY_PAY'),
   validate({ body: createSupplierPaymentSchema }),
   supplierPaymentController.create,
 );
 
 supplierPaymentRoutes.patch(
   '/:id',
-  requireRole('ADMIN'),
+  requireShopPermission('MONEY_PAY'),
   validate({ params: idParamSchema, body: updateSupplierPaymentSchema }),
   supplierPaymentController.update,
 );
 
 supplierPaymentRoutes.post(
   '/:id/post',
-  requireRole('ADMIN'),
+  requireShopPermission('MONEY_PAY'),
   validate({ params: idParamSchema }),
   supplierPaymentController.post,
 );
 
 supplierPaymentRoutes.post(
   '/:id/cancel',
-  requireRole('ADMIN'),
+  requireShopPermission('MONEY_PAY'),
   validate({ params: idParamSchema }),
   supplierPaymentController.cancel,
 );

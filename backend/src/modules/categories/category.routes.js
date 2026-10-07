@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireShopPermission } from '../users/shop-permissions.js';
 import * as categoryController from './category.controller.js';
 import {
   listCategoriesQuerySchema,
@@ -20,21 +21,21 @@ categoryRoutes.get('/:id', validate({ params: idParamSchema }), categoryControll
 
 categoryRoutes.post(
   '/',
-  requireRole('ADMIN'),
+  requireShopPermission('PRODUCTS_MANAGE'),
   validate({ body: createCategorySchema }),
   categoryController.create,
 );
 
 categoryRoutes.patch(
   '/:id',
-  requireRole('ADMIN'),
+  requireShopPermission('PRODUCTS_MANAGE'),
   validate({ params: idParamSchema, body: updateCategorySchema }),
   categoryController.update,
 );
 
 categoryRoutes.patch(
   '/:id/status',
-  requireRole('ADMIN'),
+  requireShopPermission('PRODUCTS_MANAGE'),
   validate({ params: idParamSchema, body: statusSchema }),
   categoryController.updateStatus,
 );

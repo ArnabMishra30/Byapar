@@ -37,6 +37,7 @@ import {
   type AdjustmentReason,
 } from "./stock-helpers";
 import { MovementList, useWarehouses } from "./movement-list";
+import { LocationSelect } from "./location-select";
 import { invalidateStock } from "./opening-stock-dialog";
 import { StockTabs } from "./stock-ui";
 import type { ProductRecord } from "./types";
@@ -128,6 +129,9 @@ function AdjustmentDialog({
   const [direction, setDirection] = React.useState<AdjustmentDirection | "">("");
   const [quantity, setQuantity] = React.useState("");
   const [unitCost, setUnitCost] = React.useState("");
+  const [storageLocationId, setStorageLocationId] = React.useState("");
+  // A location belongs to one store, so changing the store clears it.
+  React.useEffect(() => setStorageLocationId(""), [warehouseId]);
   const [notes, setNotes] = React.useState("");
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [confirming, setConfirming] = React.useState(false);
@@ -192,6 +196,7 @@ function AdjustmentDialog({
         // The backend rejects a cost on removals: it uses the current average.
         unitCost: type === "ADJUSTMENT_IN" ? unitCost.trim() : undefined,
         notes: formatAdjustmentNotes(reason, notes),
+        ...(storageLocationId ? { storageLocationId } : {}),
       }),
     onSuccess: () => {
       toast.success("Stock adjusted");
@@ -245,6 +250,7 @@ function AdjustmentDialog({
             <Field label="Product" required error={errors.productId}>
               <EntitySelect
                 kind="product"
+                productKind="ITEM"
                 value={product?.id}
                 valueLabel={product?.name ?? (prefill.isLoading ? "Loading…" : undefined)}
                 invalid={Boolean(errors.productId)}
@@ -268,6 +274,23 @@ function AdjustmentDialog({
                 ))}
               </NativeSelect>
             </Field>
+
+            {warehouseId ? (
+              <Field
+                label="Rack / shelf"
+                htmlFor="adj-location"
+                hint="Optional. Left blank, the product's usual spot in this store is used."
+                error={errors.storageLocationId}
+              >
+                <LocationSelect
+                  id="adj-location"
+                  warehouseId={warehouseId}
+                  value={storageLocationId}
+                  onChange={setStorageLocationId}
+                  emptyLabel="Product's usual spot"
+                />
+              </Field>
+            ) : null}
 
             {product && warehouseId ? (
               <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
