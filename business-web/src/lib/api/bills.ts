@@ -40,6 +40,10 @@ export interface ExtractedBill {
   lines: ExtractedLine[];
   confidence: "HIGH" | "MEDIUM" | "LOW" | null;
   notes: string | null;
+  /** As printed: "Cash", "UPI", "Credit"... */
+  paymentMode?: string | null;
+  /** What the reader corrected or doubts (500 g read as 0.5 kg, fake GSTIN...). */
+  warnings?: string[];
 }
 
 /** A supplier or customer the server believes this bill is with. */
@@ -128,6 +132,8 @@ export interface Bill {
   extractedAt: string | null;
   extractionError: string | null;
   reviewedData: ExtractedBill | null;
+  /** Only on upload: the other invoices found in the same file, each its own bill. */
+  otherBills?: Bill[];
   posted: {
     sourceType: "PURCHASE" | "SALES_INVOICE";
     sourceId: string;

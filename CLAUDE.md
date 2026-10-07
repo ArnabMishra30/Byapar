@@ -45,6 +45,7 @@ Context synced at: f2c3354 (2026-09-30; party master added 2026-09-30, uncommitt
 - periods (`period-guard.service` at posting choke point) + opening-balances; document-numbers (`DocumentSequence`, row-locked)
 - platform (SaaS): plans, subscriptions, subscription-payments, businesses (onboarding), sales-team, `permissions.js`, `subscription-guard.service`, `public.routes.js`, `subscription-status.routes.js`
 - bills (AI import): bill-storage (local disk), `llamacloud.client` (LlamaExtract), bill-extraction, bill-matching, bill-masters, bill-payment, bill.service
+  - Extraction asks for every invoice in the file (seller+buyer, tax rows, quantity cell as printed); `bill-normalize.js` (pure) does the maths: party by direction, invalid GSTIN/masked phone blanked, bill-level tax rate spread to lines, 500 g at per-kg rate -> 0.5 kg, pack size in name is not the unit, HSN leading zeros, "Payment: Cash/UPI" -> paid; adds `warnings` shown on review. Multi-invoice file -> extra Bill rows (own file copy, `extraction.documentIndex`), upload returns `otherBills`. Eval on real API: `node scripts/eval-bill-extraction.mjs ../asstes OUT|IN` vs `scripts/bill-expectations.json` (uses credits)
 
 ## Data model (`backend/prisma/schema.prisma`)
 - Tenant root `Company` (1:1 `CompanySettings`); nearly every model has `companyId`

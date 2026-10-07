@@ -471,7 +471,12 @@ export function UploadBillDialog({
   const mutation = useMutation({
     mutationFn: () => billsApi.upload(file as File, direction),
     onSuccess: (bill) => {
-      if (bill.status === "REVIEW") {
+      const extra = bill.otherBills?.length ?? 0;
+      if (bill.status === "REVIEW" && extra > 0) {
+        toast.success(
+          `This file had ${extra + 1} separate bills — each is in the list to check and record`,
+        );
+      } else if (bill.status === "REVIEW") {
         toast.success("Bill read — check the details before recording it");
       } else if (bill.status === "FAILED") {
         toast.warning(bill.extractionError ?? "The bill could not be read");

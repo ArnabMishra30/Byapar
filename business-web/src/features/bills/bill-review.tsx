@@ -520,6 +520,20 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
         </div>
       )}
 
+      {(bill.reviewedData?.warnings?.length ?? 0) > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <div className="min-w-0 text-sm">
+            <p className="font-medium">Please check these before recording</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted-foreground">
+              {bill.reviewedData?.warnings?.map((warning) => (
+                <li key={warning} className="break-words">{warning}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
       {data.confidence && data.confidence !== "HIGH" && (
         <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
           <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />

@@ -1,0 +1,137 @@
+{
+  "Grocery_GST_Demo_Bill_02.pdf": [
+    {
+      "seller": "Shree Ganesh General Store",
+      "buyer": "Walk-in Customer",
+      "invoiceNumber": "SGS-2026-0147",
+      "invoiceDate": "2026-10-06",
+      "subtotal": "1955.00",
+      "grandTotal": "2052.76",
+      "amountPaid": "2052.76",
+      "lines": [
+        { "hsnCode": "1006", "quantity": "1", "unitPrice": "520", "lineTotal": "520", "taxRate": "5" },
+        { "hsnCode": "0713", "quantity": "2", "unitPrice": "155", "lineTotal": "310", "taxRate": "5" },
+        { "hsnCode": "1512", "quantity": "2", "unitPrice": "145", "lineTotal": "290" },
+        { "hsnCode": "2501", "quantity": "2", "unitPrice": "28", "lineTotal": "56" },
+        { "hsnCode": "1701", "quantity": "3", "unitPrice": "48", "lineTotal": "144" },
+        { "hsnCode": "3402", "quantity": "1", "unitPrice": "315", "lineTotal": "315" },
+        { "hsnCode": "1905", "quantity": "3", "unitPrice": "30", "lineTotal": "90" },
+        { "hsnCode": "0902", "quantity": "1", "unitPrice": "145", "lineTotal": "145" },
+        { "hsnCode": "3808", "quantity": "1", "unitPrice": "85", "lineTotal": "85" }
+      ]
+    }
+  ],
+  "Hardware_Shop_GST_Demo_Bill.pdf": [
+    {
+      "seller": "Royal Hardware",
+      "buyer": "Walk-in Customer",
+      "invoiceNumber": "RHS-2026-0284",
+      "invoiceDate": "2026-10-06",
+      "subtotal": "4465.00",
+      "grandTotal": "5268.70",
+      "amountPaid": "5268.70",
+      "lines": [
+        { "hsnCode": "3917", "quantity": "5", "unitPrice": "185", "lineTotal": "925", "taxRate": "18" },
+        { "hsnCode": "3917", "quantity": "10", "unitPrice": "18", "lineTotal": "180" },
+        { "hsnCode": "7217", "quantity": "2", "unitPrice": "95", "lineTotal": "190" },
+        { "hsnCode": "3214", "quantity": "2", "unitPrice": "620", "lineTotal": "1240" },
+        { "hsnCode": "7318", "quantity": "4", "unitPrice": "85", "lineTotal": "340" },
+        { "hsnCode": "7317", "quantity": "2", "unitPrice": "110", "lineTotal": "220" },
+        { "hsnCode": "8481", "quantity": "2", "unitPrice": "285", "lineTotal": "570" },
+        { "hsnCode": "9603", "quantity": "3", "unitPrice": "75", "lineTotal": "225" },
+        { "hsnCode": "3919", "quantity": "5", "unitPrice": "25", "lineTotal": "125" },
+        { "hsnCode": "8207", "quantity": "1", "unitPrice": "450", "lineTotal": "450", "taxRate": "18" }
+      ]
+    }
+  ],
+  "Healthcare_Product_GST_Demo_Bill.pdf": [
+    {
+      "seller": "Healthplus Wellness",
+      "buyer": "Walk-in Customer",
+      "invoiceNumber": "HPW-2026-0426",
+      "invoiceDate": "2026-10-06",
+      "subtotal": "3690.00",
+      "grandTotal": "4354.20",
+      "amountPaid": "4354.20",
+      "lines": [
+        { "hsnCode": "2202", "quantity": "2", "unitPrice": "499", "lineTotal": "998", "taxRate": "18" },
+        { "hsnCode": "2106", "quantity": "1", "unitPrice": "399", "lineTotal": "399" },
+        { "hsnCode": "1302", "quantity": "2", "unitPrice": "249", "lineTotal": "498" },
+        { "hsnCode": "2106", "quantity": "1", "unitPrice": "549", "lineTotal": "549" },
+        { "hsnCode": "2106", "quantity": "1", "unitPrice": "799", "lineTotal": "799" },
+        { "hsnCode": "3401", "quantity": "3", "unitPrice": "149", "lineTotal": "447" }
+      ]
+    }
+  ],
+  "Mudi_Khana_Demo_GST_Bill.pdf": [
+    {
+      "seller": "Maa Lakshmi Mudi Bhandar",
+      "buyer": "Walk-in Customer",
+      "invoiceNumber": "MLMB-2026-0108",
+      "invoiceDate": "2026-10-06",
+      "subtotal": "1670.00",
+      "grandTotal": "1753.50",
+      "amountPaid": "1753.50",
+      "lines": [
+        { "hsnCode": "1006", "quantity": "1", "unitPrice": "360", "lineTotal": "360", "taxRate": "5" },
+        { "hsnCode": "2501", "quantity": "2", "unitPrice": "28", "lineTotal": "56" },
+        { "hsnCode": "1514", "quantity": "2", "unitPrice": "165", "lineTotal": "330" },
+        { "hsnCode": "0713", "quantity": "2", "unitPrice": "110", "lineTotal": "220" },
+        { "hsnCode": "1101", "quantity": "1", "unitPrice": "285", "lineTotal": "285" },
+        { "hsnCode": "1905", "quantity": "4", "unitPrice": "10", "lineTotal": "40" },
+        { "hsnCode": "3401", "quantity": "3", "unitPrice": "38", "lineTotal": "114" },
+        { "hsnCode": "0902", "quantity": "1", "unitPrice": "265", "lineTotal": "265" }
+      ]
+    }
+  ],
+  "Sarathi_Technologies_Demo_GST_Invoices.pdf": [
+    {
+      "seller": "Sarathi Technologies",
+      "buyer": "ABC Healthcare",
+      "invoiceNumber": "ST-DEMO-001",
+      "invoiceDate": "2026-10-06",
+      "subtotal": "10000.00",
+      "grandTotal": "11800.00",
+      "lines": [{ "hsnCode": "9983", "quantity": "1", "unitPrice": "10000", "lineTotal": "10000", "taxRate": "18" }]
+    },
+    {
+      "seller": "Sarathi Technologies",
+      "buyer": "XYZ Business Solutions",
+      "invoiceNumber": "ST-DEMO-002",
+      "invoiceDate": "2026-10-06",
+      "subtotal": "25000.00",
+      "grandTotal": "29500.00",
+      "lines": [{ "hsnCode": "9983", "quantity": "1", "unitPrice": "25000", "lineTotal": "25000", "taxRate": "18" }]
+    },
+    {
+      "seller": "Sarathi Technologies",
+      "buyer": "Mitra Enterprises",
+      "invoiceNumber": "ST-DEMO-003",
+      "invoiceDate": "2026-10-06",
+      "subtotal": "50000.00",
+      "grandTotal": "59000.00",
+      "lines": [{ "hsnCode": "9983", "quantity": "1", "unitPrice": "50000", "lineTotal": "50000", "taxRate": "18" }]
+    }
+  ],
+  "Sweet_Shop_GST_Demo_Bill.pdf": [
+    {
+      "seller": "Ananda Mistanna Bhandar",
+      "buyer": "Walk-in Customer",
+      "invoiceNumber": "AMB-2026-0318",
+      "invoiceDate": "2026-10-06",
+      "subtotal": "2415.00",
+      "grandTotal": "2535.76",
+      "amountPaid": "2535.76",
+      "lines": [
+        { "hsnCode": "2106", "quantity": "2", "unit": "kg", "unitPrice": "240", "lineTotal": "480", "taxRate": "5" },
+        { "hsnCode": "2106", "quantity": "1", "unit": "kg", "unitPrice": "420", "lineTotal": "420" },
+        { "hsnCode": "2106", "quantity": "0.5", "unit": "kg", "unitPrice": "650", "lineTotal": "325" },
+        { "hsnCode": "2106", "quantity": "1", "unit": "kg", "unitPrice": "360", "lineTotal": "360" },
+        { "hsnCode": "2106", "quantity": "0.5", "unit": "kg", "unitPrice": "280", "lineTotal": "140" },
+        { "hsnCode": "0403", "quantity": "4", "unit": "pcs", "unitPrice": "55", "lineTotal": "220" },
+        { "hsnCode": "2106", "quantity": "1", "unit": "kg", "unitPrice": "320", "lineTotal": "320" },
+        { "hsnCode": "2106", "quantity": "0.5", "unit": "kg", "unitPrice": "300", "lineTotal": "150" }
+      ]
+    }
+  ]
+}

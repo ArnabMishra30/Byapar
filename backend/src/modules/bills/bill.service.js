@@ -129,20 +129,29 @@ export async function upload(currentUser, file, input) {
 
   try {
     const result = await extractBill(file.buffer, stored.mimeType, input.direction);
+    const [first, ...others] = result.documents ?? [result];
 
     const updated = await billRepository.update(bill.id, {
       status: 'REVIEW',
       // Verbatim, for audit. Kept even after the human corrects it, so what the
       // model said and what the human confirmed can always be compared.
-      extraction: result.raw,
-      extractionModel: result.model,
+      extraction: first.raw,
+      extractionModel: first.model,
       extractedAt: new Date(),
       extractionError: null,
       // The validated, shaped version - the starting point for the review form.
-      reviewedData: result.data,
+      reviewedData: first.data,
     });
 
-    return toPublicBill(updated);
+    // One file, several invoices (e.g. one per page): each becomes its own bill
+    // to review and post. Each gets its own copy of the file, since a stored
+    // file belongs to exactly one bill (storageKey is unique).
+    const otherBills = [];
+    for (const doc of others) {
+      otherBills.push(await createSiblingBill(currentUser, file, input.direction, doc));
+    }
+
+    return { ...toPublicBill(updated), otherBills };
   } catch (error) {
     logger.warn({ billId: bill.id, err: error.message }, 'Bill extraction failed');
 
@@ -152,6 +161,30 @@ export async function upload(currentUser, file, input) {
     });
 
     return toPublicBill(updated);
+  }
+}
+
+async function createSiblingBill(currentUser, file, direction, doc) {
+  const stored = await billStorage.storeBill(currentUser.companyId, file);
+  try {
+    const sibling = await billRepository.create({
+      companyId: currentUser.companyId,
+      direction,
+      status: 'REVIEW',
+      originalFilename: stored.originalFilename,
+      mimeType: stored.mimeType,
+      fileSize: stored.fileSize,
+      storageKey: stored.storageKey,
+      uploadedById: currentUser.id,
+      extraction: doc.raw,
+      extractionModel: doc.model,
+      extractedAt: new Date(),
+      reviewedData: doc.data,
+    });
+    return toPublicBill(sibling);
+  } catch (error) {
+    await billStorage.deleteBill(stored.storageKey).catch(() => {});
+    throw error;
   }
 }
 
@@ -176,15 +209,19 @@ export async function retryExtraction(currentUser, id) {
 
   try {
     const result = await extractBill(buffer, bill.mimeType, bill.direction);
+    // A bill split out of a multi-invoice file re-reads as its own invoice.
+    const documents = result.documents ?? [result];
+    const index = Number(bill.extraction?.documentIndex ?? 0);
+    const doc = documents.find((d) => d.raw?.documentIndex === index) ?? documents[0];
 
     return toPublicBill(
       await billRepository.update(bill.id, {
         status: 'REVIEW',
-        extraction: result.raw,
-        extractionModel: result.model,
+        extraction: doc.raw,
+        extractionModel: doc.model,
         extractedAt: new Date(),
         extractionError: null,
-        reviewedData: result.data,
+        reviewedData: doc.data,
       }),
     );
   } catch (error) {
