@@ -10,11 +10,8 @@ const server = app.listen(env.PORT, () => {
   if (!isProduction) {
     logger.info(`API base URL: http://localhost:${env.PORT}/api/v1`);
   }
-  if (isProduction && env.CORS_ORIGIN === '*') {
-    logger.warn(
-      'CORS_ORIGIN is "*": any website may call this API. Set it to the frontend URLs, comma-separated.',
-    );
-  }
+  // A missing or wildcard CORS_ORIGIN in production now fails validation at
+  // startup (see config/env.js), so no runtime warning is needed here.
 });
 
 // Finish in-flight requests, then close the database connection.

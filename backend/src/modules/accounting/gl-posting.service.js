@@ -231,6 +231,64 @@ export function recordPurchaseReturnPosted(tx, currentUser, purchaseReturn, move
   });
 }
 
+// --- inventory module postings (opening stock, adjustments) ----------------
+
+/**
+ *   Dr Inventory           what the opening-stock movement capitalised
+ *       Cr Owner's Capital
+ *
+ * Opening stock entered through the inventory endpoint. The opening-balances
+ * module posts its OWN entry for the stock it creates, so this is never posted
+ * for a movement that module made - the two paths are kept apart in the service,
+ * and each product's opening value reaches Inventory (1300) exactly once.
+ * A zero-value movement posts nothing (createPostedEntryWithinTransaction
+ * returns null on empty lines).
+ */
+export function recordOpeningStockPosted(tx, currentUser, { movement, entryDate, description }) {
+  const label = description ?? 'Opening stock';
+  return createPostedEntryWithinTransaction(tx, currentUser, {
+    entryDate,
+    description: label,
+    sourceType: SOURCE_TYPE.INVENTORY_OPENING_STOCK,
+    sourceId: movement.id,
+    lines: nonZero([
+      line(SYSTEM_ACCOUNT.INVENTORY, 'debit', movement.totalCost, label),
+      line(SYSTEM_ACCOUNT.OWNERS_CAPITAL, 'credit', movement.totalCost, label),
+    ]),
+  });
+}
+
+/**
+ * A stock adjustment, valued at what the movement actually recorded:
+ *   decrease (damage/loss/shrinkage)  Dr Inventory Shrinkage & Loss / Cr Inventory
+ *   increase (found stock / surplus)  Dr Inventory / Cr Inventory Adjustment Gain
+ *
+ * A loss hits the P&L as an expense; a gain as other income. The amount is the
+ * movement's totalCost (outgoing at current moving average, incoming at the
+ * entered cost), so the Inventory control account tracks the stock ledger.
+ */
+export function recordStockAdjustmentPosted(tx, currentUser, { movement, direction, entryDate, description }) {
+  const label = description ?? 'Stock adjustment';
+  const amount = movement.totalCost;
+  const lines =
+    direction === 'IN'
+      ? [
+          line(SYSTEM_ACCOUNT.INVENTORY, 'debit', amount, label),
+          line(SYSTEM_ACCOUNT.INVENTORY_ADJUSTMENT_GAIN, 'credit', amount, label),
+        ]
+      : [
+          line(SYSTEM_ACCOUNT.INVENTORY_SHRINKAGE_LOSS, 'debit', amount, label),
+          line(SYSTEM_ACCOUNT.INVENTORY, 'credit', amount, label),
+        ];
+  return createPostedEntryWithinTransaction(tx, currentUser, {
+    entryDate,
+    description: label,
+    sourceType: SOURCE_TYPE.INVENTORY_ADJUSTMENT,
+    sourceId: movement.id,
+    lines: nonZero(lines),
+  });
+}
+
 // --- supplier payment ------------------------------------------------------
 
 /** CASH goes to Cash; every other method goes to Bank. */

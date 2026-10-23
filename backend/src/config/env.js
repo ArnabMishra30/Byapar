@@ -5,6 +5,24 @@ import { z } from 'zod';
 // If something is missing or wrong, the app fails at startup with a clear message
 // instead of failing later at a random request.
 
+/** Split a comma-separated origin list into trimmed, non-empty entries. */
+function parseOrigins(value) {
+  return String(value ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
+// The localhost origins the two frontends run on in local development. Used only
+// when CORS_ORIGIN is not set, and never in production (which requires an
+// explicit value - see the superRefine below).
+const DEVELOPMENT_CORS_ORIGINS = [
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:3002',
+];
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -41,7 +59,11 @@ const envSchema = z.object({
   PLATFORM_ADMIN_PASSWORD: z.string().min(8).optional(),
   PLATFORM_ADMIN_NAME: z.string().default('Platform Administrator'),
 
-  CORS_ORIGIN: z.string().default('*'),
+  // The browser origins allowed to call the API, comma-separated. No wildcard
+  // default: in production an explicit, non-"*" value is REQUIRED (enforced
+  // below) so the API never silently accepts every origin. In development it may
+  // be left unset and sensible localhost defaults are used (see corsOrigins).
+  CORS_ORIGIN: z.string().optional(),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
   // --- AI bill extraction ---------------------------------------------------
@@ -77,10 +99,63 @@ const envSchema = z.object({
   DB_TRANSACTION_MAX_WAIT_MS: z.coerce.number().int().positive().default(10000),
   DB_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
 
-  /** Where uploaded bills are written. Outside the repo in any real deployment. */
+  /** Where uploaded bills are written when the provider is 'local'. */
   BILL_STORAGE_DIR: z.string().default('./storage/bills'),
   /** Hard ceiling on an uploaded bill, in bytes. Default 10 MB. */
   BILL_MAX_FILE_SIZE: z.coerce.number().int().positive().default(10 * 1024 * 1024),
+
+  // WHERE BILL FILES ARE STORED.
+  //
+  // 'local' writes to BILL_STORAGE_DIR on the server filesystem - fine for local
+  // development and for a host with a persistent disk, but EPHEMERAL on a
+  // platform like Render's default instances (files vanish on every redeploy).
+  // 's3' uses any S3-compatible object store (AWS S3, Cloudflare R2, MinIO) and
+  // survives redeploys. The S3_* values are required when the provider is 's3'
+  // (enforced below). BILL_S3_SECRET_ACCESS_KEY is a server secret and never
+  // leaves the backend.
+  BILL_STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
+  BILL_S3_BUCKET: z.string().optional(),
+  BILL_S3_REGION: z.string().optional(),
+  /** Custom endpoint for an S3-compatible store (R2/MinIO). Omit for AWS S3. */
+  BILL_S3_ENDPOINT: z.string().url().optional(),
+  BILL_S3_ACCESS_KEY_ID: z.string().optional(),
+  BILL_S3_SECRET_ACCESS_KEY: z.string().optional(),
+  /** Path-style addressing, needed by some S3-compatible stores (e.g. MinIO). */
+  BILL_S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+}).superRefine((data, ctx) => {
+  // In production the API must be told exactly which origins may call it. A
+  // missing value or a wildcard is a configuration error, not a warning: fail
+  // startup with a clear message rather than accept every website.
+  if (data.NODE_ENV === 'production') {
+    const origins = parseOrigins(data.CORS_ORIGIN);
+    if (origins.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CORS_ORIGIN'],
+        message: 'CORS_ORIGIN is required in production: set it to the frontend origin(s), comma-separated (e.g. https://app.example.com).',
+      });
+    } else if (origins.includes('*')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CORS_ORIGIN'],
+        message: 'CORS_ORIGIN must not be "*" in production. List the explicit frontend origin(s), comma-separated.',
+      });
+    }
+  }
+
+  // Object storage needs its connection details, or startup is a configuration
+  // error rather than a failure on the first bill upload.
+  if (data.BILL_STORAGE_PROVIDER === 's3') {
+    for (const key of ['BILL_S3_BUCKET', 'BILL_S3_REGION', 'BILL_S3_ACCESS_KEY_ID', 'BILL_S3_SECRET_ACCESS_KEY']) {
+      if (!data[key] || String(data[key]).trim() === '') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when BILL_STORAGE_PROVIDER is "s3".`,
+        });
+      }
+    }
+  }
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -97,3 +172,13 @@ export const env = parsed.data;
 
 export const isProduction = env.NODE_ENV === 'production';
 export const isTest = env.NODE_ENV === 'test';
+
+// The concrete list of allowed CORS origins the app enforces. An explicit
+// CORS_ORIGIN (any environment) wins; otherwise development/test fall back to
+// the localhost frontends. Production can never reach the fallback: it fails
+// validation above unless an explicit, non-"*" value is set.
+export const corsOrigins = (() => {
+  const configured = parseOrigins(env.CORS_ORIGIN);
+  if (configured.length > 0) return configured;
+  return DEVELOPMENT_CORS_ORIGINS;
+})();

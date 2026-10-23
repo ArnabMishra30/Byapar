@@ -572,13 +572,15 @@ describe('posting a purchase', () => {
     const movement = movements.body.data[0];
     expect(movement.type).toBe('STOCK_IN');
     expect(movement.quantity).toBe('100.000');
-    expect(movement.unitCost).toBe('10.0000');
+    // Net of the 5% line discount (10 - 5% = 9.50): stock is capitalised at the
+    // cost actually paid, so the discount lowers the moving average and COGS.
+    expect(movement.unitCost).toBe('9.5000');
     expect(movement.referenceType).toBe('PURCHASE');
     expect(movement.referenceId).toBe(created.body.data.purchase.id);
 
     const balance = await readBalance(adminA, ctxA.productId, ctxA.warehouseId);
     expect(balance.body.data.balance.quantity).toBe('100.000');
-    expect(balance.body.data.balance.averageCost).toBe('10.0000');
+    expect(balance.body.data.balance.averageCost).toBe('9.5000');
   });
 
   it('uses the bill price for inventory costing, not the product master price', async () => {

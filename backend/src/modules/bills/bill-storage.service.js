@@ -1,8 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, writeFile, readFile, unlink } from 'node:fs/promises';
-import path from 'node:path';
 import { env } from '../../config/env.js';
 import { ApiError } from '../../utils/api-error.js';
+import * as localProvider from './storage/local-provider.js';
+import * as s3Provider from './storage/s3-provider.js';
+
+// The byte I/O is delegated to a provider chosen by BILL_STORAGE_PROVIDER:
+// 'local' (filesystem, default) or 's3' (S3-compatible, durable across
+// redeploys). Everything else here - validation, the SHA-256 checksum, the
+// tenant-scoped key, the company-prefix access check - is provider-agnostic.
+function provider() {
+  return env.BILL_STORAGE_PROVIDER === 's3' ? s3Provider : localProvider;
+}
 
 // WHERE UPLOADED BILLS LIVE.
 //
@@ -108,21 +116,6 @@ function buildStorageKey(companyId, mimeType) {
   return `${companyId}/${month}/${randomUUID()}${extension}`;
 }
 
-/** Absolute location of a key, refusing anything that escapes the root. */
-function resolveKey(storageKey) {
-  const root = path.resolve(env.BILL_STORAGE_DIR);
-  const full = path.resolve(root, storageKey);
-
-  // Belt and braces. Keys are generated here and cannot contain "..", but this
-  // is the check that would catch a corrupted or hand-edited database row before
-  // it reads something it should not.
-  if (full !== root && !full.startsWith(root + path.sep)) {
-    throw ApiError.business(400, 'INVALID_STORAGE_KEY', 'Invalid file reference');
-  }
-
-  return full;
-}
-
 /**
  * Writes an uploaded bill and returns the record fields describing it.
  *
@@ -156,10 +149,7 @@ export async function storeBill(companyId, file) {
   }
 
   const storageKey = buildStorageKey(companyId, file.mimetype);
-  const destination = resolveKey(storageKey);
-
-  await mkdir(path.dirname(destination), { recursive: true });
-  await writeFile(destination, file.buffer);
+  await provider().put(storageKey, file.buffer, file.mimetype);
 
   return {
     storageKey,
@@ -184,9 +174,9 @@ export async function readBill(companyId, storageKey) {
   }
 
   try {
-    return await readFile(resolveKey(storageKey));
+    return await provider().get(storageKey);
   } catch (error) {
-    if (error.code === 'ENOENT') {
+    if (error?.notFound) {
       throw ApiError.business(
         404,
         'BILL_FILE_MISSING',
@@ -197,14 +187,9 @@ export async function readBill(companyId, storageKey) {
   }
 }
 
-/** Removes a stored file. Used when an upload fails after the write. */
+/** Removes a stored file. Idempotent: deleting a missing file is a success. */
 export async function deleteBill(storageKey) {
-  try {
-    await unlink(resolveKey(storageKey));
-  } catch (error) {
-    // Already gone is a success for this purpose.
-    if (error.code !== 'ENOENT') throw error;
-  }
+  await provider().remove(storageKey);
 }
 
-export { buildStorageKey, resolveKey };
+export { buildStorageKey };

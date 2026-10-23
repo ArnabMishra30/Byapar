@@ -312,9 +312,11 @@ describe('purchase posting writes a journal entry', () => {
     expect(Number(postedTo(entry, '1300', 'debit'))).toBe(moved);
   });
 
-  it('posts a purchase discount to the valuation adjustment account', async () => {
-    // 100 @ 100 with a 10% line discount: stock is still capitalised at 10000,
-    // but only 9000 is owed. The 1000 gap is a price variance, not a fudge.
+  it('nets a purchase discount into inventory, not an expense account', async () => {
+    // 100 @ 100 with a 10% line discount: only 9000 is owed and 9000 is what the
+    // stock cost, so inventory is capitalised NET at 9000. The discount lowers
+    // the moving-average cost (and later COGS) instead of being booked as a gain
+    // in the Inventory Valuation Adjustment (5100) expense account.
     const purchase = await postedPurchase(adminA, ctxA, {
       items: [
         {
@@ -330,9 +332,10 @@ describe('purchase posting writes a journal entry', () => {
     const { entry } = await journalFor(adminA, 'PURCHASE', purchase.id);
 
     expect(entry.isBalanced).toBe(true);
-    expect(postedTo(entry, '1300', 'debit')).toBe('10000.00');
+    expect(postedTo(entry, '1300', 'debit')).toBe('9000.00');
     expect(postedTo(entry, '2000', 'credit')).toBe('9000.00');
-    expect(postedTo(entry, '5100', 'credit')).toBe('1000.00');
+    // No price-variance line: the discount lives in inventory, not 5100.
+    expect(postedTo(entry, '5100', 'credit')).toBeNull();
   });
 
   it('writes no journal entry for a draft', async () => {
@@ -827,7 +830,10 @@ describe('profit and loss', () => {
     expect(pl.revenue.total).toBe('2000.00');
   });
 
-  it('counts a purchase discount as a reduction of cost', async () => {
+  it('keeps a purchase discount out of the P&L until the stock is sold', async () => {
+    // Under net capitalisation a discount lowers the inventory cost, not the
+    // P&L: buying discounted stock and selling none creates no profit and no
+    // expense. The saving surfaces later as a lower COGS when the stock sells.
     await postedPurchase(adminA, ctxA, {
       items: [
         {
@@ -842,9 +848,9 @@ describe('profit and loss', () => {
 
     const pl = (await profitAndLoss(adminA)).body.data.profitAndLoss;
 
-    // The variance account is an expense with a credit balance: negative cost.
-    expect(pl.otherExpenses.total).toBe('-1000.00');
-    expect(pl.netProfit).toBe('1000.00');
+    // No price-variance credit in an expense account, and no phantom profit.
+    expect(pl.otherExpenses.total).toBe('0.00');
+    expect(pl.netProfit).toBe('0.00');
   });
 
   it('respects a date range', async () => {

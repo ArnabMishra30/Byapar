@@ -34,10 +34,12 @@ export const SYSTEM_ACCOUNT = {
 
   SALES_REVENUE: '4000',
   SALES_RETURNS: '4100',
+  INVENTORY_ADJUSTMENT_GAIN: '4200',
 
   COST_OF_GOODS_SOLD: '5000',
   INVENTORY_VALUATION_ADJUSTMENT: '5100',
   OPERATING_EXPENSES: '5200',
+  INVENTORY_SHRINKAGE_LOSS: '5300',
   RENT: '5210',
   ELECTRICITY: '5215',
   WATER: '5220',
@@ -190,6 +192,13 @@ export const SYSTEM_ACCOUNTS = [
     description: 'Contra-revenue. Carries a DEBIT balance and is subtracted from revenue.',
   },
   {
+    code: SYSTEM_ACCOUNT.INVENTORY_ADJUSTMENT_GAIN,
+    name: 'Inventory Adjustment Gain',
+    type: 'REVENUE',
+    description:
+      'Other income from a positive stock adjustment (found stock / count surplus). Not sales revenue; shown separately on the P&L.',
+  },
+  {
     code: SYSTEM_ACCOUNT.COST_OF_GOODS_SOLD,
     name: 'Cost of Goods Sold',
     type: 'EXPENSE',
@@ -200,7 +209,14 @@ export const SYSTEM_ACCOUNTS = [
     name: 'Inventory Valuation Adjustment',
     type: 'EXPENSE',
     description:
-      'Purchase price variance: the gap between what stock was capitalised at and what was actually owed (purchase discounts, and the Phase 5 return-at-original-cost residue).',
+      'Purchase price variance: the residue when a purchase return reverses stock at its original cost while remaining stock carries the blended moving average, plus sub-paise rounding. Purchase discounts are now netted into inventory and no longer land here.',
+  },
+  {
+    code: SYSTEM_ACCOUNT.INVENTORY_SHRINKAGE_LOSS,
+    name: 'Inventory Shrinkage & Loss',
+    type: 'EXPENSE',
+    description:
+      'Stock written down by a negative adjustment (damage, loss, shrinkage), at the current moving-average cost. Maintained only by the stock-adjustment flow.',
   },
   {
     code: SYSTEM_ACCOUNT.OPERATING_EXPENSES,
@@ -317,6 +333,8 @@ export const SYSTEM_ACCOUNTS = [
 export const NON_CATEGORY_EXPENSE_CODES = [
   SYSTEM_ACCOUNT.COST_OF_GOODS_SOLD,
   SYSTEM_ACCOUNT.INVENTORY_VALUATION_ADJUSTMENT,
+  // Maintained only by the stock-adjustment flow, not a manual expense category.
+  SYSTEM_ACCOUNT.INVENTORY_SHRINKAGE_LOSS,
   // A grouping account. Its children are the categories.
   SYSTEM_ACCOUNT.OPERATING_EXPENSES,
 ];

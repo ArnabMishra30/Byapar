@@ -54,6 +54,12 @@ export const SOURCE_TYPE = {
   /// @@unique([companyId, sourceType, sourceId]) makes a second initialization
   /// impossible at the database - not merely guarded against in code.
   OPENING_BALANCE: 'OPENING_BALANCE',
+  /// Opening stock entered through the inventory endpoint (not the opening-
+  /// balances module). sourceId is the stock movement's id, so a second posting
+  /// for the same movement is impossible at the database.
+  INVENTORY_OPENING_STOCK: 'INVENTORY_OPENING_STOCK',
+  /// A stock adjustment (gain or loss). sourceId is the movement's id.
+  INVENTORY_ADJUSTMENT: 'INVENTORY_ADJUSTMENT',
 };
 
 // --- the sign convention ---------------------------------------------------

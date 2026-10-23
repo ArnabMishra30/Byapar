@@ -1,6 +1,16 @@
 import { ApiError } from '../../utils/api-error.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
-import { add, subtract, multiply, round, toDecimal, toMoneyString, isGreaterThan } from '../../utils/money.js';
+import {
+  add,
+  subtract,
+  multiply,
+  divide,
+  round,
+  toDecimal,
+  toMoneyString,
+  isGreaterThan,
+  isZero,
+} from '../../utils/money.js';
 import { withRetryableTransaction } from '../../config/transaction.js';
 import * as purchaseReturnRepository from './purchase-return.repository.js';
 import * as purchaseRepository from '../purchases/purchase.repository.js';
@@ -132,6 +142,47 @@ export function calculateLineTotal(quantity, unitCost) {
   return round(multiply(quantity, unitCost), MONEY_DP);
 }
 
+/**
+ * The net (taxable) value of a returned purchase line.
+ *
+ * The original purchase line may have carried a discount. Returning part of a
+ * line hands back a PROPORTIONAL share of that discount - exactly as a sales
+ * return does (see sales-return.service.js `calculateReturnLine`) - so the
+ * supplier credit and the input-tax reversal are computed on the net amount,
+ * never on the gross cost. A full return gives back the whole discount; a
+ * partial return gives back its pro-rata slice.
+ *
+ * Exported so the proration can be unit tested without a database.
+ *
+ * @param {object} params
+ * @param {string|Decimal} params.returnQuantity      quantity being returned now
+ * @param {string|Decimal} params.purchasedQuantity   quantity on the original line
+ * @param {string|Decimal} params.unitCost            cost on the original line
+ * @param {string|Decimal} params.originalDiscountAmount  discount on the whole original line
+ * @returns {{ gross: Decimal, discountAmount: Decimal, taxableAmount: Decimal }}
+ */
+export function calculateReturnLine({
+  returnQuantity,
+  purchasedQuantity,
+  unitCost,
+  originalDiscountAmount,
+}) {
+  const gross = round(multiply(returnQuantity, unitCost), MONEY_DP);
+
+  // Guard against a zero original quantity so a data problem can never divide by
+  // zero; such a line simply carries no prorated discount.
+  const discountAmount = isZero(purchasedQuantity)
+    ? toDecimal(0)
+    : round(
+        multiply(originalDiscountAmount ?? 0, divide(returnQuantity, purchasedQuantity)),
+        MONEY_DP,
+      );
+
+  const taxableAmount = round(subtract(gross, discountAmount), MONEY_DP);
+
+  return { gross, discountAmount, taxableAmount };
+}
+
 // --- shared validation ------------------------------------------------------
 
 /**
@@ -192,7 +243,16 @@ async function resolveAndValidate(companyId, input, { excludeReturnId, client } 
       );
     }
 
-    const lineTotal = calculateLineTotal(line.quantity, purchaseItem.unitCost);
+    // The returned taxable value is the gross cost MINUS a pro-rata share of the
+    // original line's discount. `lineTotal` here is that net taxable amount: it
+    // is what the header `taxableTotal` sums, what the supplier is credited for,
+    // and the base the input tax is reversed on.
+    const { taxableAmount: lineTotal } = calculateReturnLine({
+      returnQuantity: line.quantity,
+      purchasedQuantity: purchaseItem.quantity,
+      unitCost: purchaseItem.unitCost,
+      originalDiscountAmount: purchaseItem.discountAmount,
+    });
 
     // The input credit is handed back at the rates the ORIGINAL bill was taxed
     // at, taken from that line's frozen snapshot. Today's tax master is never
@@ -455,8 +515,12 @@ export async function post(currentUser, id) {
         productId: item.productId,
         warehouseId: locked.warehouseId,
         quantity: item.quantity,
-        // Goods leave at what the supplier charged, not at today's average.
-        outUnitCostOverride: item.unitCost,
+        // Goods leave at the NET per-unit cost the stock was capitalised at (the
+        // line's net taxable spread over the returned quantity), not today's
+        // average. With no discount this equals what the supplier charged; with
+        // one, it matches the discounted cost that entered inventory, so the
+        // return neither over-credits inventory nor re-opens a discount variance.
+        outUnitCostOverride: divide(item.lineTotal, item.quantity),
         referenceType: PURCHASE_RETURN_REFERENCE_TYPE,
         referenceId: locked.id,
         notes: `Purchase return ${locked.returnNumber}`,

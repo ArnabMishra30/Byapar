@@ -1,7 +1,8 @@
-import { toDecimal, add, subtract, toMoneyString, isZero } from '../../utils/money.js';
+import { toDecimal, add, subtract, multiply, round, toMoneyString, isZero } from '../../utils/money.js';
 import * as journalRepository from '../accounting/journal.repository.js';
 import * as accountRepository from '../accounting/account.repository.js';
 import * as creditRepository from '../credit/credit.repository.js';
+import * as inventoryRepository from '../inventory/inventory.repository.js';
 import { SYSTEM_ACCOUNT } from '../accounting/system-accounts.js';
 
 // IS THIS PERIOD SAFE TO CLOSE?
@@ -134,7 +135,45 @@ export async function verifyPeriod(companyId, period) {
       'records of the same fact. They must agree.',
   });
 
-  const failed = checks.filter((check) => !check.passed);
+  // --- 4. inventory valuation vs the Inventory control account (report-only) --
+  //
+  // The stock sub-ledger (quantity x moving-average, per balance) and the
+  // Inventory (1300) GL account are two records of the same asset. They agree by
+  // construction when stock arrives through a GL-backed flow, and diverge by the
+  // documented purchase-return "Phase 5" residue (a return reverses at original
+  // cost while remaining stock keeps the blended average) plus sub-paise
+  // rounding. This check SURFACES any gap - it never posts an entry to force a
+  // match, and it does NOT block a close (blocking: false), because that residue
+  // is a known, by-design valuation artefact. Inventory balances are a current
+  // snapshot (the sub-ledger keeps no historical valuation), so the check is
+  // most meaningful for the latest open period.
+  const inventoryAccount = await accountRepository.findByCodeAndCompany(
+    SYSTEM_ACCOUNT.INVENTORY,
+    companyId,
+  );
+  const [inventoryControl, inventoryValuation] = await Promise.all([
+    controlBalance(companyId, inventoryAccount?.id, period.endDate, 'DEBIT'),
+    sumInventoryValuation(companyId),
+  ]);
+
+  checks.push({
+    key: 'INVENTORY_RECONCILE',
+    label: 'Inventory valuation agrees with the Inventory control account',
+    blocking: false,
+    passed: agrees(inventoryValuation, inventoryControl),
+    expected: toMoneyString(inventoryControl, 2),
+    actual: toMoneyString(inventoryValuation, 2),
+    difference: toMoneyString(subtract(inventoryValuation, inventoryControl), 2),
+    detail:
+      'Stock sub-ledger (quantity x moving-average) vs the Inventory (1300) ' +
+      'control account. A non-zero difference is the documented purchase-return ' +
+      'valuation residue plus rounding; it is reported, never forced, and does ' +
+      'not block closing.',
+  });
+
+  // Only blocking checks decide whether the period is safe to close; a
+  // report-only check (blocking: false) is surfaced but never obstructs.
+  const failed = checks.filter((check) => !check.passed && check.blocking !== false);
 
   return {
     period: {
@@ -145,6 +184,15 @@ export async function verifyPeriod(companyId, period) {
     checks,
     failed: failed.map((check) => check.key),
   };
+}
+
+/** Inventory sub-ledger valuation: Σ round(quantity × averageCost, 4). */
+async function sumInventoryValuation(companyId) {
+  const balances = await inventoryRepository.findBalancesForValuation(companyId);
+  return balances.reduce(
+    (total, balance) => add(total, round(multiply(balance.quantity, balance.averageCost), 4)),
+    toDecimal(0),
+  );
 }
 
 /**

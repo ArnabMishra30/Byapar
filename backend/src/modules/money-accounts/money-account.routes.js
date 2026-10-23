@@ -108,6 +108,9 @@ moneyAccountRoutes.post(
         amount: positiveMoney('Amount'),
         date: businessDate,
         notes: z.string().trim().max(200).nullable().optional(),
+        // Optional client-generated UUID that makes a retry / double-click
+        // resolve to the same transfer instead of creating a duplicate (M2).
+        idempotencyKey: z.string().uuid('idempotencyKey must be a UUID').optional(),
       })
       .strict(),
   }),

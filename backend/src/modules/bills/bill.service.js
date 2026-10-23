@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { ApiError } from '../../utils/api-error.js';
+import { withTransaction } from '../../config/transaction.js';
 import { hasShopPermission } from '../users/shop-permissions.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
 import { logger } from '../../utils/logger.js';
@@ -39,6 +41,86 @@ import * as salesService from '../sales/sales.service.js';
 // feature to drift away from the rules the rest of the system enforces.
 
 const TERMINAL_STATUSES = new Set(['POSTED', 'CANCELLED']);
+
+/** A multipart form sends booleans as text; only an explicit true counts. */
+function wantsAllowDuplicate(value) {
+  return value === true || value === 'true';
+}
+
+/**
+ * Serialises concurrent uploads of the same file within one company (M3), so the
+ * duplicate check and the insert cannot interleave. A Postgres transaction-scoped
+ * advisory lock keyed on (companyId, checksum); it releases when the transaction
+ * ends. A key collision only adds harmless extra serialisation, never a wrong
+ * result. A plain unique index cannot be used here because a multi-invoice file
+ * legitimately produces several live bills that share one checksum.
+ */
+function lockChecksum(tx, companyId, checksum) {
+  // pg_advisory_xact_lock returns void, which $queryRaw cannot deserialize, so
+  // the lock is taken inside a subquery and a constant is selected instead.
+  return tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(${companyId}), hashtext(${checksum}))) AS _lock`;
+}
+
+/**
+ * The identity two separate bills for the SAME invoice would share, drawn from
+ * the posted (or about-to-be-posted) document (M4). Deliberately NOT the invoice
+ * number - that is handled by the document service's own uniqueness and can be
+ * blank or misread - but the party, the total and the date, which together pin
+ * an invoice down. Both sides come through the same serializer, so the strings
+ * are directly comparable.
+ */
+function postingSignature(direction, doc) {
+  if (!doc) return null;
+  const partyId = direction === 'IN' ? doc.supplier?.id : doc.customer?.id;
+  return `${partyId ?? ''}|${doc.grandTotal ?? ''}|${doc.invoiceDate ?? ''}`;
+}
+
+/**
+ * The posting fingerprint for a bill about to post (M4): a hash of the file
+ * checksum + the posting signature (direction + party + total + date). It is the
+ * same signal the pre-check uses, reduced to one string so a UNIQUE index can
+ * enforce it atomically. Null when the file has no checksum (a legacy bill),
+ * which falls back to the pre-check only.
+ */
+function computePostingFingerprint(checksum, direction, doc) {
+  if (!checksum || !doc) return null;
+  const signature = `${checksum}|${direction}|${postingSignature(direction, doc)}`;
+  return createHash('sha256').update(signature).digest('hex');
+}
+
+/**
+ * An already-POSTED bill that is the same invoice as the one about to post (M4).
+ *
+ * The signal is the same FILE (checksum) AND the same party+total+date. Both are
+ * required, so a multi-invoice file (same checksum, different invoices) and a
+ * genuine reorder (same figures, different file) are never mistaken for a
+ * duplicate. Returns a reference to the existing bill/document, or null.
+ */
+async function findDuplicatePostedBill(currentUser, { bill, checksum, draftDoc, service }) {
+  const candidates = await billRepository.findPostedBillsByChecksum(
+    currentUser.companyId,
+    checksum,
+    bill.direction,
+    bill.id,
+  );
+  if (candidates.length === 0) return null;
+
+  const target = postingSignature(bill.direction, draftDoc);
+  for (const candidate of candidates) {
+    if (!candidate.postedSourceId) continue;
+    let doc;
+    try {
+      doc = await service.getById(currentUser, candidate.postedSourceId);
+    } catch {
+      // The posted document is gone; it cannot be a live duplicate.
+      continue;
+    }
+    if (postingSignature(bill.direction, doc) === target) {
+      return { billId: candidate.id, documentId: candidate.postedSourceId };
+    }
+  }
+  return null;
+}
 
 function toPublicBill(bill) {
   return {
@@ -96,22 +178,60 @@ export async function upload(currentUser, file, input) {
   }
 
   const stored = await billStorage.storeBill(companyId, file);
+  const allowDuplicate = wantsAllowDuplicate(input.allowDuplicate);
 
+  // DUPLICATE FILE DETECTION (M3), made concurrency-safe.
+  //
+  // The same bytes already uploaded (and not since failed or cancelled) means a
+  // second extraction job would waste the provider's credits and leave two
+  // drafts of one bill. The check and the insert run inside one transaction
+  // holding an advisory lock on (companyId, checksum), so two simultaneous
+  // identical uploads are serialised and the second sees the first's row. Unless
+  // the uploader deliberately asks to keep both, it is refused with a reference
+  // to what is already there. On any failure the stored file is removed so no
+  // orphan is left behind.
   let bill;
   try {
-    bill = await billRepository.create({
-      companyId,
-      direction: input.direction,
-      status: 'PROCESSING',
-      originalFilename: stored.originalFilename,
-      mimeType: stored.mimeType,
-      fileSize: stored.fileSize,
-      storageKey: stored.storageKey,
-      uploadedById: currentUser.id,
+    bill = await withTransaction(async (tx) => {
+      await lockChecksum(tx, companyId, stored.checksum);
+
+      if (!allowDuplicate) {
+        const existing = await billRepository.findLiveBillByChecksum(companyId, stored.checksum, tx);
+        if (existing) {
+          throw new ApiError(
+            409,
+            'This looks like a bill you have already uploaded. Open the existing one, or upload again to keep both.',
+            [
+              {
+                field: 'file',
+                message: `Already uploaded (currently ${existing.status.toLowerCase()}).`,
+                existingBillId: existing.id,
+                status: existing.status,
+              },
+            ],
+            'BILL_DUPLICATE_UPLOAD',
+          );
+        }
+      }
+
+      return billRepository.create(
+        {
+          companyId,
+          direction: input.direction,
+          status: 'PROCESSING',
+          originalFilename: stored.originalFilename,
+          mimeType: stored.mimeType,
+          fileSize: stored.fileSize,
+          storageKey: stored.storageKey,
+          checksum: stored.checksum,
+          uploadedById: currentUser.id,
+        },
+        tx,
+      );
     });
   } catch (error) {
-    // No row means nothing points at the file. Remove it rather than leaving
-    // an orphan on disk forever.
+    // A rejected duplicate or a failed insert leaves no row pointing at the file,
+    // so remove it rather than orphan it on storage.
     await billStorage.deleteBill(stored.storageKey).catch(() => {});
     throw error;
   }
@@ -175,6 +295,7 @@ async function createSiblingBill(currentUser, file, direction, doc) {
       mimeType: stored.mimeType,
       fileSize: stored.fileSize,
       storageKey: stored.storageKey,
+      checksum: stored.checksum,
       uploadedById: currentUser.id,
       extraction: doc.raw,
       extractionModel: doc.model,
@@ -320,12 +441,14 @@ export async function confirm(
     newProducts = [],
     newWarehouse = null,
     payment = null,
+    allowDuplicate = false,
   },
 ) {
   const { companyId } = currentUser;
 
   const bill = await billRepository.findByIdAndCompany(id, companyId);
   if (!bill) throw ApiError.business(404, 'BILL_NOT_FOUND', 'Bill not found');
+  const { checksum } = (await billRepository.findChecksum(id, companyId)) ?? {};
 
   if (bill.status === 'POSTED') {
     throw ApiError.business(
@@ -406,6 +529,79 @@ export async function confirm(
 
   // The existing service. Same validation, same calculators, same everything.
   const draft = existingDraft ?? (await service.createDraft(currentUser, parsed.data));
+
+  // DUPLICATE POSTING ACROSS SEPARATE BILL RECORDS (M4).
+  //
+  // The document service already refuses a second purchase with the same
+  // supplier + invoice number (and a second sale with the same invoice number).
+  // This catches what slips past that: the SAME file posted again under a blank
+  // or different invoice number. A match needs the same file (checksum) AND the
+  // same party, total and date, so a multi-invoice file and a genuine reorder
+  // are never caught. The reviewer can confirm again with allowDuplicate to keep
+  // both. Only matters when actually posting.
+  if (postImmediately && !allowDuplicate) {
+    const duplicate = await findDuplicatePostedBill(currentUser, {
+      bill,
+      checksum,
+      draftDoc: draft,
+      service,
+    });
+    if (duplicate) {
+      // Remember the draft so an override retry finishes it rather than making a
+      // second one - exactly as the post-failure path below does.
+      await billRepository.update(bill.id, {
+        status: 'REVIEW',
+        postedSourceType: sourceType,
+        postedSourceId: draft.id,
+      });
+      throw new ApiError(
+        409,
+        'This bill looks like one already recorded. Open that document, or confirm again to record it anyway.',
+        [
+          {
+            field: 'document',
+            message: 'Same file, party, total and date as an existing posted bill.',
+            existingBillId: duplicate.billId,
+            documentId: duplicate.documentId,
+          },
+        ],
+        'BILL_DUPLICATE_POSTING',
+      );
+    }
+
+    // ATOMIC BACKSTOP for the concurrent case the read-only pre-check cannot
+    // see: two confirmations of the same invoice from different bill records can
+    // both pass the check above, then race to post. Reserving the posting
+    // fingerprint makes the DB's unique index reject the loser before it posts,
+    // so at most one document is ever created.
+    const fingerprint = computePostingFingerprint(checksum, bill.direction, draft);
+    if (fingerprint) {
+      try {
+        await billRepository.reservePostingFingerprint(bill.id, fingerprint);
+      } catch (error) {
+        if (error?.code !== 'P2002') throw error;
+        const holder = await billRepository.findByPostingFingerprint(companyId, fingerprint);
+        await billRepository.update(bill.id, {
+          status: 'REVIEW',
+          postedSourceType: sourceType,
+          postedSourceId: draft.id,
+        });
+        throw new ApiError(
+          409,
+          'This bill looks like one already recorded. Open that document, or confirm again to record it anyway.',
+          [
+            {
+              field: 'document',
+              message: 'Same file, party, total and date as an existing posted bill.',
+              existingBillId: holder?.id,
+              documentId: holder?.postedSourceId,
+            },
+          ],
+          'BILL_DUPLICATE_POSTING',
+        );
+      }
+    }
+  }
 
   let posted = draft;
   if (postImmediately) {

@@ -107,6 +107,14 @@ export async function listBalancesByCompany(companyId, { skip, take, productId, 
   return { items, total };
 }
 
+/** Quantity and average cost of every balance, for valuation / GL reconciliation. */
+export function findBalancesForValuation(companyId, client = prisma) {
+  return client.inventoryBalance.findMany({
+    where: { companyId },
+    select: { quantity: true, averageCost: true },
+  });
+}
+
 // --- movements -------------------------------------------------------------
 
 /** Movements are only ever created. There is deliberately no update or delete. */

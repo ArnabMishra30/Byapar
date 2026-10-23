@@ -80,4 +80,63 @@ export function countByStatus(companyId) {
   });
 }
 
+// Statuses that mean an import is live - in progress or already recorded - as
+// opposed to FAILED or CANCELLED, which are abandoned and must not block a
+// fresh re-upload of the same file.
+const LIVE_STATUSES = ['UPLOADED', 'PROCESSING', 'REVIEW', 'POSTED'];
+
+/**
+ * A non-abandoned bill in the SAME company carrying this checksum, if any (M3).
+ *
+ * Company-scoped, so one shop's file can never match another's. FAILED and
+ * CANCELLED bills are ignored on purpose: re-uploading after a failed read or a
+ * cancellation is expected and must proceed.
+ */
+export function findLiveBillByChecksum(companyId, checksum, client = prisma) {
+  if (!checksum) return null;
+  return client.bill.findFirst({
+    where: { companyId, checksum, status: { in: LIVE_STATUSES } },
+    select: { id: true, status: true, direction: true },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+/**
+ * POSTED bills in the same company from the same file (checksum) and direction,
+ * excluding the one being posted (M4). The caller compares each one's posted
+ * document to the document about to be posted to decide if it is the same
+ * invoice.
+ */
+export function findPostedBillsByChecksum(companyId, checksum, direction, excludeBillId, client = prisma) {
+  if (!checksum) return [];
+  return client.bill.findMany({
+    where: { companyId, checksum, direction, status: 'POSTED', id: { not: excludeBillId } },
+    select: { id: true, postedSourceType: true, postedSourceId: true },
+  });
+}
+
+/** One bill's checksum. Kept out of BILL_FIELDS, which never reaches a browser. */
+export function findChecksum(id, companyId, client = prisma) {
+  return client.bill.findFirst({ where: { id, companyId }, select: { checksum: true } });
+}
+
+/**
+ * Claims a posting fingerprint for a bill (M4). The (companyId, postingFingerprint)
+ * unique index means that if another bill record already claimed this invoice,
+ * the write throws P2002 - the atomic guard against two concurrent confirmations
+ * posting the same invoice. Re-claiming the same value on the same bill (a retry)
+ * is a no-op, not a conflict.
+ */
+export function reservePostingFingerprint(id, postingFingerprint, client = prisma) {
+  return client.bill.update({ where: { id }, data: { postingFingerprint }, select: { id: true } });
+}
+
+/** The bill that currently holds a posting fingerprint, for a duplicate reference. */
+export function findByPostingFingerprint(companyId, postingFingerprint, client = prisma) {
+  return client.bill.findFirst({
+    where: { companyId, postingFingerprint },
+    select: { id: true, postedSourceType: true, postedSourceId: true },
+  });
+}
+
 export { BILL_FIELDS };

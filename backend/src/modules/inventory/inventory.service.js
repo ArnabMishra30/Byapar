@@ -14,6 +14,7 @@ import {
 } from '../../utils/money.js';
 import { withRetryableTransaction } from '../../config/transaction.js';
 import { assertStockChangeAllowed, companyToday } from '../periods/period-guard.service.js';
+import * as glPostingService from '../accounting/gl-posting.service.js';
 import * as inventoryRepository from './inventory.repository.js';
 import * as productRepository from '../products/product.repository.js';
 import * as warehouseRepository from '../warehouses/warehouse.repository.js';
@@ -328,18 +329,22 @@ export function applyStockOutWithinTransaction(tx, params) {
 /**
  * Opens its own transaction. Used by the two endpoints in this module.
  *
- * These are the only stock changes that write NO journal entry, so they never
- * reach the guard in the posting path. They are checked here instead - against
- * the company's today, because a stock movement carries no business date of its
- * own. Document flows call applyMovementWithinTransaction directly with their
- * own transaction and are guarded at the journal, so nothing is checked twice.
+ * The movement and its journal entry (when `postJournal` is given) commit or
+ * roll back together, so stock and the ledger can never disagree. The stock
+ * movement carries no business date of its own, so the period is checked here
+ * against the company's today. `postJournal(tx, movement, date)` posts the GL
+ * entry; it is passed ONLY by this module's endpoints, so the opening-balances
+ * module - which calls applyMovementWithinTransaction directly with its own
+ * transaction and its own entry - never double-posts.
  */
-async function applyMovement(params) {
+async function applyMovement(params, postJournal = null) {
   const date = await companyToday(params.currentUser.companyId);
 
   return withRetryableTransaction(async (tx) => {
     await assertStockChangeAllowed(tx, params.currentUser.companyId, date, 'This stock movement');
-    return applyMovementWithinTransaction(tx, params);
+    const movement = await applyMovementWithinTransaction(tx, params);
+    if (postJournal) await postJournal(tx, movement, date);
+    return movement;
   });
 }
 
@@ -353,19 +358,28 @@ async function applyMovement(params) {
 export async function createOpeningStock(currentUser, input) {
   await assertProductAndWarehouseUsable(currentUser.companyId, input.productId, input.warehouseId);
 
-  const movement = await applyMovement({
-    currentUser,
-    productId: input.productId,
-    warehouseId: input.warehouseId,
-    type: 'OPENING_STOCK',
-    direction: 'IN',
-    quantity: input.quantity,
-    unitCost: input.unitCost,
-    referenceType: REFERENCE_TYPE.OPENING_STOCK,
-    notes: input.notes ?? null,
-    storageLocationId: input.storageLocationId ?? null,
-    requireNoExistingBalance: true,
-  });
+  const movement = await applyMovement(
+    {
+      currentUser,
+      productId: input.productId,
+      warehouseId: input.warehouseId,
+      type: 'OPENING_STOCK',
+      direction: 'IN',
+      quantity: input.quantity,
+      unitCost: input.unitCost,
+      referenceType: REFERENCE_TYPE.OPENING_STOCK,
+      notes: input.notes ?? null,
+      storageLocationId: input.storageLocationId ?? null,
+      requireNoExistingBalance: true,
+    },
+    // Dr Inventory / Cr Owner's Capital, atomic with the movement.
+    (tx, mv, date) =>
+      glPostingService.recordOpeningStockPosted(tx, currentUser, {
+        movement: mv,
+        entryDate: date,
+        description: input.notes ? `Opening stock - ${input.notes}` : 'Opening stock',
+      }),
+  );
 
   return toPublicMovement(movement);
 }
@@ -376,20 +390,31 @@ export async function createAdjustment(currentUser, input) {
 
   const isIncoming = input.type === 'ADJUSTMENT_IN';
 
-  const movement = await applyMovement({
-    currentUser,
-    productId: input.productId,
-    warehouseId: input.warehouseId,
-    type: input.type,
-    direction: isIncoming ? 'IN' : 'OUT',
-    quantity: input.quantity,
-    // For an outgoing adjustment the cost is the current average, resolved
-    // inside the transaction - the caller does not get to choose it.
-    unitCost: isIncoming ? input.unitCost : null,
-    referenceType: REFERENCE_TYPE.STOCK_ADJUSTMENT,
-    notes: input.notes ?? null,
-    storageLocationId: input.storageLocationId ?? null,
-  });
+  const movement = await applyMovement(
+    {
+      currentUser,
+      productId: input.productId,
+      warehouseId: input.warehouseId,
+      type: input.type,
+      direction: isIncoming ? 'IN' : 'OUT',
+      quantity: input.quantity,
+      // For an outgoing adjustment the cost is the current average, resolved
+      // inside the transaction - the caller does not get to choose it.
+      unitCost: isIncoming ? input.unitCost : null,
+      referenceType: REFERENCE_TYPE.STOCK_ADJUSTMENT,
+      notes: input.notes ?? null,
+      storageLocationId: input.storageLocationId ?? null,
+    },
+    // A gain credits Inventory Adjustment Gain; a loss debits Inventory
+    // Shrinkage & Loss. Atomic with the movement.
+    (tx, mv, date) =>
+      glPostingService.recordStockAdjustmentPosted(tx, currentUser, {
+        movement: mv,
+        direction: isIncoming ? 'IN' : 'OUT',
+        entryDate: date,
+        description: `Stock ${isIncoming ? 'gain' : 'loss'} adjustment${input.notes ? ` - ${input.notes}` : ''}`,
+      }),
+  );
 
   return toPublicMovement(movement);
 }

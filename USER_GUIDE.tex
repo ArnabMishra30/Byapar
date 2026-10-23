@@ -1,0 +1,421 @@
+% ---------------------------------------------------------------------------
+% Apna Hisab - User Guide (Admin & Shop)
+% Compile with:  pdflatex USER_GUIDE.tex   (run twice for the table of contents)
+% Needs a standard TeX Live / MiKTeX install - no exotic packages.
+% ---------------------------------------------------------------------------
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{parskip}
+\usepackage[hidelinks]{hyperref}
+
+% ---- Colours ----
+\definecolor{brand}{HTML}{4F39C6}
+\definecolor{ink}{HTML}{1F2937}
+\definecolor{muted}{HTML}{6B7280}
+\definecolor{soft}{HTML}{F3F4F6}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=brand,
+  urlcolor=brand,
+  pdftitle={Apna Hisab - User Guide},
+  pdfauthor={Sarathi Technologies}
+}
+
+% ---- Section styling ----
+\titleformat{\section}{\Large\bfseries\color{brand}}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries\color{ink}}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\color{ink}}{\thesubsubsection}{0.6em}{}
+
+% ---- Header / footer ----
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\lhead{\small\color{muted}Apna Hisab}
+\rhead{\small\color{muted}User Guide}
+\cfoot{\small\color{muted}\thepage}
+
+% ---- Helpers ----
+\newcommand{\role}[1]{\textbf{\color{brand}#1}}
+\newcommand{\menu}[1]{\textsf{#1}}
+\newcommand{\key}[1]{\fbox{\small\texttt{#1}}}
+
+\newenvironment{note}
+  {\par\medskip\noindent\begin{tabular}{@{}p{0.03\textwidth}p{0.9\textwidth}@{}}
+   \textbf{!} & \itshape}
+  {\end{tabular}\par\medskip}
+
+% ---- Table column type ----
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
+\setlist[itemize]{leftmargin=1.4em,itemsep=2pt,topsep=3pt}
+\setlist[enumerate]{leftmargin=1.6em,itemsep=3pt,topsep=3pt}
+
+% ===========================================================================
+\begin{document}
+
+% ---- Title page ----
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+{\Huge\bfseries\color{brand} Apna Hisab\par}
+\vspace{0.4cm}
+{\Large Billing \& Accounting for Your Shop\par}
+\vspace{1.2cm}
+{\LARGE\bfseries User Guide\par}
+\vspace{0.3cm}
+{\large For Administrators and Shop Owners\par}
+\vspace{2cm}
+\begin{tabular}{@{}ll@{}}
+\textbf{Application} & Apna Hisab \\
+\textbf{Shop app}    & \url{https://apnahisab.sarathitechnologies.com/shop/login} \\
+\textbf{Admin panel} & \url{https://apnahisab.sarathitechnologies.com/console/admin/login} \\
+\end{tabular}
+\vfill
+{\color{muted}\small Published by Sarathi Technologies \textbullet{} Revision 1.0\par}
+\end{titlepage}
+
+\tableofcontents
+\clearpage
+
+% ===========================================================================
+\section{Introduction}
+
+Apna Hisab is a web-based billing and accounting system for Indian shops. It
+handles sales and purchase invoices, GST, inventory, customer and supplier
+credit, expenses, and financial reports --- all from a web browser, with nothing
+to install.
+
+The system has \textbf{two separate panels} that share one web address:
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}p{0.26\textwidth}L@{}}
+\toprule
+\textbf{Panel} & \textbf{Who uses it and what for} \\
+\midrule
+\role{Admin panel} (operator console) &
+The platform administrator onboards shops, manages subscriptions and plans,
+and oversees users. Opens under \texttt{/console}. \\[4pt]
+\role{Shop app} &
+Shop owners and their staff do daily billing, inventory, payments and reports.
+Opens under \texttt{/shop}. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{note}
+In a single browser you can be signed into \emph{either} the admin panel or a
+shop, not both at the same time (they share one web address). If you need both
+open together, use a second browser or a private/incognito window.
+\end{note}
+
+\subsection{Addresses at a glance}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}p{0.22\textwidth}L@{}}
+\toprule
+\textbf{You are\ldots} & \textbf{Open this address} \\
+\midrule
+A shop owner / staff & \url{https://apnahisab.sarathitechnologies.com/shop/login} \\[3pt]
+The administrator    & \url{https://apnahisab.sarathitechnologies.com/console/admin/login} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Signing in and out}
+\begin{itemize}
+  \item Enter your email and password, then select \menu{Sign in}.
+  \item Your session is kept securely; you stay signed in until you sign out or
+        it expires.
+  \item To sign out, open your profile menu (top-right) and choose \menu{Sign out}.
+  \item If you forget a password, ask your administrator (for shop staff) or the
+        platform administrator (for shop owners) to reset it.
+\end{itemize}
+
+% ===========================================================================
+\clearpage
+\section{Part A --- Administrator Guide}
+
+The administrator runs the platform. This section is for the person who holds the
+\role{Platform Admin} account.
+
+\subsection{Opening the admin panel}
+Go to \url{https://apnahisab.sarathitechnologies.com/console/admin/login} and sign
+in with your administrator credentials. You land on the platform dashboard.
+
+\begin{note}
+Change the default administrator password immediately after your first sign-in,
+from \menu{Admin \textrightarrow{} Settings} (or your profile menu).
+\end{note}
+
+\subsection{Onboarding a new shop}
+This is how a shop and its owner login are created.
+\begin{enumerate}
+  \item Open \menu{Platform \textrightarrow{} Businesses}.
+  \item Select \menu{Onboard business} (or \menu{Add business}).
+  \item Fill in the shop details: business name, owner name, owner email,
+        phone, and a starting password for the owner.
+  \item Choose a subscription plan for the shop (see \S\ref{sec:plans}).
+  \item Save. The shop and its \role{Shop Owner} login are created, and the shop
+        app becomes available to that owner at the \texttt{/shop} address.
+\end{enumerate}
+
+\subsection{Managing businesses}
+From \menu{Platform \textrightarrow{} Businesses} you can:
+\begin{itemize}
+  \item View every shop on the platform and open a shop's detail page.
+  \item See a shop's subscription status, plan, and activity.
+  \item Suspend or re-activate a shop.
+  \item Adjust a shop's plan or extend its subscription.
+\end{itemize}
+
+\subsection{Plans and subscriptions}\label{sec:plans}
+\begin{itemize}
+  \item \menu{Platform \textrightarrow{} Plans} --- create and edit the
+        subscription plans shops can be placed on (name, price, limits).
+  \item \menu{Platform \textrightarrow{} Subscriptions} --- see which shop is on
+        which plan, renewal dates, and status.
+  \item \menu{Platform \textrightarrow{} Payments} --- record and review
+        subscription payments.
+\end{itemize}
+
+\begin{note}
+A shop must have an active subscription to \emph{post} documents (invoices,
+purchases). Reading and browsing is always allowed; only posting is gated. If a
+shop owner reports a ``subscription required'' message while saving an invoice,
+check the shop's subscription here.
+\end{note}
+
+\subsection{Users, roles and audit}
+\begin{itemize}
+  \item \menu{Admin \textrightarrow{} Users} --- platform-level users
+        (administrators and sales staff).
+  \item \menu{Admin \textrightarrow{} Roles} --- what each platform role may do.
+  \item \menu{Platform \textrightarrow{} Sales team} --- manage sales staff who
+        onboard and support shops.
+  \item \menu{Admin \textrightarrow{} Audit logs} --- a record of important
+        actions taken on the platform.
+  \item \menu{Admin \textrightarrow{} Settings} --- platform-wide settings.
+\end{itemize}
+
+% ===========================================================================
+\clearpage
+\section{Part B --- Shop Owner \& Staff Guide}
+
+This section is for the people who run a shop day to day: the \role{Shop Owner}
+(role: Admin) and \role{Staff} (cashiers, store, accounts).
+
+\subsection{Opening the shop app}
+Go to \url{https://apnahisab.sarathitechnologies.com/shop/login} and sign in with
+the credentials your administrator gave you. You land on the \menu{Dashboard}.
+
+\subsubsection{Finding your way around}
+\begin{itemize}
+  \item The \textbf{sidebar} on the left groups every screen (Sales, Purchases,
+        Stock, Parties, Money, Reports, and so on). It collapses on small
+        screens into a bottom tab bar.
+  \item Press \key{Ctrl}+\key{K} (or \key{Cmd}+\key{K} on Mac) anywhere to open
+        the \textbf{command menu} and jump straight to any screen.
+  \item Most list screens have search, date-range filters, and a
+        \menu{Print} button.
+\end{itemize}
+
+\subsection{Dashboard}
+The home screen summarises today's business --- sales, collections, dues, low
+stock and recent activity. Cashiers see a simplified ``My Day'' view focused on
+their own sales and receipts.
+
+\subsection{Billing a sale}
+There are two ways to bill:
+\begin{enumerate}
+  \item \menu{Quick Billing} --- the fastest counter screen: pick products, set
+        quantities, take payment, done. Best for over-the-counter sales.
+  \item \menu{Sales \textrightarrow{} New} --- the full invoice form with every
+        option (customer, GST, discounts, line-level details).
+\end{enumerate}
+When you save (post) an invoice, the system automatically reduces stock, records
+the customer's due (if on credit), and updates your accounts.
+
+\subsubsection{After a sale}
+\begin{itemize}
+  \item A review screen appears; from there you can open the \menu{Share} dialog
+        to send the invoice to the customer by a link.
+  \item Find all invoices under \menu{Sales \textrightarrow{} Invoices}.
+  \item Handle a return under \menu{Sales \textrightarrow{} Returns}.
+\end{itemize}
+
+\subsection{Purchases}
+\begin{itemize}
+  \item \menu{Purchases \textrightarrow{} New} --- record a purchase bill from a
+        supplier. Posting it increases stock (at weighted-average cost) and
+        records what you owe the supplier.
+  \item \menu{Purchases \textrightarrow{} Payables} --- see and pay supplier dues.
+  \item \menu{Purchases \textrightarrow{} Returns} --- return goods to a supplier.
+\end{itemize}
+
+\subsubsection{AI bill import}
+\menu{Purchases \textrightarrow{} Bills} lets you \textbf{upload a photo or PDF of
+a supplier bill} and the system reads it for you --- supplier, items, quantities,
+taxes --- and prepares a draft. Review the draft (it flags anything uncertain),
+fix any line, then confirm to post it. One file can contain several bills.
+
+\subsection{Stock \& inventory}
+\begin{itemize}
+  \item \menu{Stock \textrightarrow{} Products} --- your product list; open a
+        product for its full history and current stock.
+  \item \menu{Stock \textrightarrow{} In} / \menu{Out} --- manual stock movements.
+  \item \menu{Stock \textrightarrow{} Adjustments} --- correct stock after a count.
+  \item \menu{Stock \textrightarrow{} Low stock} --- items running low.
+  \item \textbf{Storage locations} --- tag where each item is kept (rack, shelf,
+        fridge). Set a product's usual spot, and pick a rack per line while
+        billing or purchasing.
+  \item \textbf{Combos} --- sell a bundle (e.g. a gift pack) as one product; its
+        contents leave stock automatically when sold.
+  \item \textbf{Offers} --- set up deals such as buy-2-get-1; free lines are added
+        to the sale automatically.
+\end{itemize}
+
+\subsection{Parties: customers \& suppliers}
+A \textbf{party} is the person or business behind a customer and/or supplier.
+\begin{itemize}
+  \item \menu{Parties} --- the combined master; a single party can be both a
+        customer and a supplier.
+  \item \menu{Customers} --- add, import (bulk), and open a customer for their
+        ledger and dues.
+  \item \menu{Suppliers} --- the same for suppliers.
+  \item \menu{Credit Book} --- outstanding receivables and payables, statements,
+        and collection reminders.
+\end{itemize}
+
+\begin{note}
+Money you are owed (receivable) and money you owe (payable) are always shown
+separately and are never cancelled out against each other.
+\end{note}
+
+\subsection{Money}
+\begin{itemize}
+  \item \menu{Money \textrightarrow{} Received} --- record a payment from a
+        customer; it is allocated against their dues.
+  \item \menu{Money \textrightarrow{} Paid} --- record a payment to a supplier.
+  \item \menu{Cash \& Bank} --- your cash, bank and UPI accounts, with transfers
+        between them.
+  \item \menu{Expenses} --- record shop expenses; a single expense can be split
+        across payment methods.
+\end{itemize}
+
+\begin{note}
+Every amount on screen comes straight from the system's records. The app never
+does its own arithmetic in the browser, so what you see is what is posted.
+\end{note}
+
+\subsection{GST}
+If GST is enabled for your shop, GST fields appear on invoices and the
+\menu{GST} section gives you GSTR-1 and GSTR-3B summaries and reconciliation.
+GST options are hidden if your shop is not registered for GST.
+
+\subsection{Reports}
+\menu{Reports} covers Sales, Purchases, Stock, Customers, Suppliers, Expenses,
+Profit \& Loss, and GST. Each report supports date ranges and printing.
+
+\subsection{Settings \& staff}
+\begin{itemize}
+  \item \menu{Settings} --- your shop's profile, preferences, money accounts and
+        storage locations.
+  \item \menu{Settings \textrightarrow{} Staff} --- add staff and set what each
+        one can do (see \S\ref{sec:roles}).
+  \item \menu{Profile} --- your own name and password.
+  \item \menu{Subscription} --- your current plan and status.
+  \item \menu{Recycle Bin} --- recover items you removed.
+\end{itemize}
+
+% ===========================================================================
+\clearpage
+\section{Staff Roles \& Permissions}\label{sec:roles}
+
+The \role{Shop Owner} (Admin) can do everything in the shop and is the only one
+who can post or cancel certain documents. \role{Staff} are given a role and a set
+of permissions.
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}p{0.22\textwidth}L@{}}
+\toprule
+\textbf{Role} & \textbf{Typical access} \\
+\midrule
+\role{Shop Owner (Admin)} &
+Full access. Posts and cancels invoices and purchases, manages staff, sees all
+reports. \\[4pt]
+\role{Cashier} &
+Bills sales and takes payments; sees only their \emph{own} sales, receipts and
+returns; no access to reports. \\[4pt]
+\role{Store} &
+Stock and product work --- goods in/out, adjustments, low stock. \\[4pt]
+\role{Accounts} &
+Payments, expenses, ledgers and reports. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{note}
+The menu only shows what a user is allowed to use. If a colleague cannot see a
+screen you can, it is because of their role --- the Shop Owner can adjust this
+under \menu{Settings \textrightarrow{} Staff}.
+\end{note}
+
+% ===========================================================================
+\clearpage
+\section{Common Tasks --- Quick Reference}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}p{0.40\textwidth}L@{}}
+\toprule
+\textbf{I want to\ldots} & \textbf{Go to} \\
+\midrule
+Bill a walk-in customer fast & \menu{Quick Billing} \\
+Make a detailed GST invoice  & \menu{Sales \textrightarrow{} New} \\
+See all my invoices          & \menu{Sales \textrightarrow{} Invoices} \\
+Enter a supplier bill        & \menu{Purchases \textrightarrow{} New} \\
+Scan a paper bill            & \menu{Purchases \textrightarrow{} Bills} (upload) \\
+Pay a supplier               & \menu{Purchases \textrightarrow{} Payables} \\
+Record money from a customer & \menu{Money \textrightarrow{} Received} \\
+Add / edit a product         & \menu{Stock \textrightarrow{} Products} \\
+Check who owes me            & \menu{Credit Book} \\
+Add a staff member           & \menu{Settings \textrightarrow{} Staff} \\
+See profit for a period      & \menu{Reports \textrightarrow{} Profit \& Loss} \\
+Jump anywhere quickly        & Press \key{Ctrl}+\key{K} \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+% ===========================================================================
+\section{Help \& Troubleshooting}
+
+\begin{description}[leftmargin=0pt,style=nextline]
+  \item[I can't sign in.] Check the address matches your role --- shops use
+        \texttt{/shop/login}, the administrator uses \texttt{/console/admin/login}.
+        Confirm your email and password; ask for a reset if needed.
+  \item[A page says a feature isn't available.] That feature may not be enabled
+        for your shop, or your role may not include it. Ask the Shop Owner.
+  \item[``Subscription required'' when saving.] The shop's subscription is
+        inactive; the administrator can renew it from the admin panel.
+  \item[The admin panel and shop keep logging each other out.] They share one web
+        address, so one browser holds one session. Use a second browser or an
+        incognito window for the other panel.
+  \item[A print looks wrong.] Use the \menu{Print} button on the screen (not the
+        browser menu); it formats the page for printing.
+\end{description}
+
+\vfill
+\begin{center}
+{\color{muted}\small End of guide \textbullet{} Apna Hisab \textbullet{} Sarathi Technologies}
+\end{center}
+
+\end{document}

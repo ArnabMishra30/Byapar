@@ -1,7 +1,7 @@
 import { ApiError } from '../../utils/api-error.js';
 import { assertLocationInWarehouse } from '../storage-locations/storage-location.service.js';
 import { toSkipTake, buildPagination } from '../../utils/pagination.js';
-import { toMoneyString, round } from '../../utils/money.js';
+import { toMoneyString, round, divide, isZero } from '../../utils/money.js';
 import { withRetryableTransaction } from '../../config/transaction.js';
 import { calculateLine, calculateTotals } from './purchase.calculator.js';
 import * as purchaseRepository from './purchase.repository.js';
@@ -443,8 +443,15 @@ export async function post(currentUser, id) {
         productId: item.productId,
         warehouseId: locked.warehouseId,
         quantity: item.quantity,
-        // The price on the supplier's bill, not Product.purchasePrice.
-        unitCost: item.unitCost,
+        // Stock is capitalised at the NET cost actually paid: the line's taxable
+        // amount (gross minus any trade discount) spread per unit. With no
+        // discount this is exactly the bill price; with one, the discount lowers
+        // the moving-average cost and later COGS, instead of being booked as a
+        // gain in a variance account. (The bill price is still what the supplier
+        // charged, never Product.purchasePrice.)
+        unitCost: isZero(item.discountAmount)
+          ? item.unitCost
+          : divide(item.taxableAmount, item.quantity),
         referenceType: PURCHASE_REFERENCE_TYPE,
         referenceId: locked.id,
         notes: `Purchase ${locked.purchaseNumber}`,

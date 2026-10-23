@@ -5,7 +5,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 
-import { env, isProduction, isTest } from './config/env.js';
+import { env, isProduction, isTest, corsOrigins } from './config/env.js';
 import { logger } from './utils/logger.js';
 import { errorHandler, notFoundHandler } from './middlewares/error-handler.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
@@ -86,9 +86,13 @@ if (isProduction) {
 
 // --- security and parsing -------------------------------------------------
 app.use(helmet());
+// Only the configured origins may call the API from a browser; any other origin
+// gets no CORS headers and is blocked by the browser. The list is validated at
+// startup (no wildcard in production). Requests with no Origin (server-to-server,
+// tests) are unaffected, as CORS only governs browsers.
 app.use(
   cors({
-    origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN.split(',').map((o) => o.trim()),
+    origin: corsOrigins,
   }),
 );
 app.use(express.json({ limit: '1mb' }));

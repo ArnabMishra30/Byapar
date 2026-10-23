@@ -23,6 +23,9 @@ export const uploadBillSchema = z.object({
   direction: z.enum(['IN', 'OUT'], {
     errorMap: () => ({ message: 'Direction must be IN (a bill you received) or OUT (a bill you issued)' }),
   }),
+  // Multipart text field: keep re-uploading the same file instead of being
+  // referred to the existing one (M3). Sent as a string, read in the service.
+  allowDuplicate: z.enum(['true', 'false']).optional(),
 });
 
 /** Saving corrections mid-review. Same shape the extractor is held to. */
@@ -123,6 +126,11 @@ export const confirmBillSchema = z.object({
    * is how documents get forgotten.
    */
   postImmediately: z.boolean().optional().default(true),
+  /**
+   * Record this even though it looks like an invoice already posted from
+   * another bill record (M4). Only a deliberate human choice sets this.
+   */
+  allowDuplicate: z.boolean().optional().default(false),
 });
 
 export const cancelBillSchema = z.object({

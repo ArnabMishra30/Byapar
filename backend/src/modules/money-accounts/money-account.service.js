@@ -208,30 +208,74 @@ export async function update(currentUser, id, { name, isActive, ...reference }) 
 
 // --- transfers between the shop's own accounts ----------------------------------
 
-/** Cash into the bank, wallet to bank... One balanced journal entry. */
-export async function transfer(currentUser, { fromAccountId, toAccountId, amount, date, notes }) {
+/**
+ * Cash into the bank, wallet to bank... One balanced journal entry.
+ *
+ * IDEMPOTENCY (QA finding M2): a client may pass `idempotencyKey` - a UUID
+ * generated once for a submit attempt and re-sent on every retry/double-click.
+ * It becomes the journal entry's sourceId, so the (companyId, sourceType,
+ * sourceId) unique index guarantees at most ONE transfer per key: a repeated
+ * request returns the transfer that was already recorded rather than creating a
+ * second one. We deliberately do NOT derive the key from the amount/accounts/
+ * date, because two genuinely-separate transfers can be identical and must both
+ * go through. Without a key the historical behaviour (a fresh id, no dedup) is
+ * preserved, so existing callers are unaffected.
+ */
+export async function transfer(
+  currentUser,
+  { fromAccountId, toAccountId, amount, date, notes, idempotencyKey },
+) {
   const { companyId } = currentUser;
   if (fromAccountId === toAccountId) {
     throw ApiError.badRequest('Choose two different accounts', [{ field: 'body.toAccountId', message: 'Same as "from"' }]);
   }
 
-  const entry = await withRetryableTransaction(async (tx) => {
-    const [from, to] = await Promise.all([
-      assertMoneyAccount(companyId, fromAccountId, tx),
-      assertMoneyAccount(companyId, toAccountId, tx),
-    ]);
-    const description = `Transfer: ${from.name} → ${to.name}${notes ? ` - ${notes}` : ''}`;
-    return createPostedEntryWithinTransaction(tx, currentUser, {
-      entryDate: date,
-      description,
-      sourceType: SOURCE.TRANSFER,
-      sourceId: randomUUID(),
-      lines: [
-        { accountId: to.id, debit: amount, description },
-        { accountId: from.id, credit: amount, description },
-      ],
+  const sourceId = idempotencyKey ?? randomUUID();
+
+  // Fast path: this key already produced a transfer, so return it unchanged.
+  if (idempotencyKey) {
+    const existing = await findTransferBySource(companyId, sourceId);
+    if (existing) return toPublicTransfer(existing);
+  }
+
+  let entry;
+  try {
+    entry = await withRetryableTransaction(async (tx) => {
+      // Re-check inside the transaction: if two requests with the same key race,
+      // the first commits and the second - retried by the wrapper after the
+      // unique-constraint rollback - finds the winner here and reuses it instead
+      // of inserting a duplicate.
+      if (idempotencyKey) {
+        const existing = await findTransferBySource(companyId, sourceId, tx);
+        if (existing) return existing;
+      }
+
+      const [from, to] = await Promise.all([
+        assertMoneyAccount(companyId, fromAccountId, tx),
+        assertMoneyAccount(companyId, toAccountId, tx),
+      ]);
+      const description = `Transfer: ${from.name} → ${to.name}${notes ? ` - ${notes}` : ''}`;
+      return createPostedEntryWithinTransaction(tx, currentUser, {
+        entryDate: date,
+        description,
+        sourceType: SOURCE.TRANSFER,
+        sourceId,
+        lines: [
+          { accountId: to.id, debit: amount, description },
+          { accountId: from.id, credit: amount, description },
+        ],
+      });
     });
-  });
+  } catch (err) {
+    // Belt and suspenders: if a race still surfaced the unique violation after
+    // the retries were spent, the winner's transfer is on record - return it.
+    if (idempotencyKey) {
+      const existing = await findTransferBySource(companyId, sourceId);
+      if (existing) return toPublicTransfer(existing);
+    }
+    throw err;
+  }
+
   return toPublicTransfer(await prisma.journalEntry.findUnique({ where: { id: entry.id }, select: TRANSFER_FIELDS }));
 }
 
@@ -244,6 +288,19 @@ const TRANSFER_FIELDS = {
   lines: { select: { debit: true, credit: true, account: { select: { id: true, name: true } } } },
   reversedBy: { select: { id: true } },
 };
+
+/**
+ * A previously-recorded transfer that carried this idempotency key, if any.
+ * The (companyId, sourceType, sourceId) unique index makes this a point lookup.
+ */
+async function findTransferBySource(companyId, sourceId, client = prisma) {
+  return client.journalEntry.findUnique({
+    where: {
+      companyId_sourceType_sourceId: { companyId, sourceType: SOURCE.TRANSFER, sourceId },
+    },
+    select: TRANSFER_FIELDS,
+  });
+}
 
 function toPublicTransfer(entry) {
   const to = entry.lines.find((l) => isGreaterThan(l.debit, 0));

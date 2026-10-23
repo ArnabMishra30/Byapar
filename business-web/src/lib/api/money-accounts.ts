@@ -62,7 +62,7 @@ export const moneyAccountsApi = {
     const res = await apiClient.get<ApiSuccessResponse<{ transfers: MoneyTransfer[] }>>("/money-accounts/transfers");
     return res.data.data.transfers;
   },
-  transfer: async (body: { fromAccountId: string; toAccountId: string; amount: string; date: string; notes?: string | null }) => {
+  transfer: async (body: { fromAccountId: string; toAccountId: string; amount: string; date: string; notes?: string | null; idempotencyKey?: string }) => {
     const res = await apiClient.post<ApiSuccessResponse<{ transfer: MoneyTransfer }>>("/money-accounts/transfers", body);
     return res.data.data.transfer;
   },

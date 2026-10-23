@@ -102,6 +102,10 @@ model Company {
   expenses              Expense[]
   accountingPeriods     AccountingPeriod[]
 
+  // Declared to match the live database (the index exists there). Keeping it in
+  // the schema removes a pre-existing drift so `prisma migrate dev` no longer
+  // wants to drop it. See docs/qa/PHASE_3A_STAGING_READINESS_REPORT.md.
+  @@index([onboardedById])
   @@map("companies")
 }
 
@@ -462,7 +466,7 @@ model User {
   // Nothing else changes: a shop route reads req.user.companyId as it always
   // did, and a platform user is kept off those routes by role, not by luck.
   companyId String?
-  company   Company? @relation(fields: [companyId], references: [id])
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
   /// What a SALES_STAFF member may do, e.g. ["BUSINESS_CREATE","PAYMENT_CREATE"].
   /// Empty for shop users, whose access is decided by their role alone, and
@@ -1070,7 +1074,7 @@ model SupplierPayable {
 
   company  Company   @relation(fields: [companyId], references: [id])
   supplier Supplier  @relation(fields: [supplierId], references: [id])
-  purchase Purchase? @relation(fields: [purchaseId], references: [id])
+  purchase Purchase? @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
 
   ledgerEntries SupplierLedgerEntry[]
   allocations   SupplierPaymentAllocation[]
@@ -1310,7 +1314,7 @@ model SalesInvoice {
   createdBy             User      @relation("SalesInvoiceCreatedBy", fields: [createdById], references: [id])
   postedBy              User?     @relation("SalesInvoicePostedBy", fields: [postedById], references: [id])
   cancelledBy           User?     @relation("SalesInvoiceCancelledBy", fields: [cancelledById], references: [id])
-  creditLimitOverrideBy User?     @relation("SalesInvoiceCreditOverrideBy", fields: [creditLimitOverrideById], references: [id])
+  creditLimitOverrideBy User?     @relation("SalesInvoiceCreditOverrideBy", fields: [creditLimitOverrideById], references: [id], onDelete: Restrict)
 
   items      SalesInvoiceItem[]
   receivable CustomerReceivable?
@@ -1435,7 +1439,7 @@ model CustomerReceivable {
 
   company      Company       @relation(fields: [companyId], references: [id])
   customer     Customer      @relation(fields: [customerId], references: [id])
-  salesInvoice SalesInvoice? @relation(fields: [salesInvoiceId], references: [id])
+  salesInvoice SalesInvoice? @relation(fields: [salesInvoiceId], references: [id], onDelete: Restrict)
 
   ledgerEntries CustomerLedgerEntry[]
   allocations   CustomerPaymentAllocation[]
@@ -1819,8 +1823,8 @@ model AccountingPeriod {
 
   company    Company @relation(fields: [companyId], references: [id])
   createdBy  User    @relation("AccountingPeriodCreatedBy", fields: [createdById], references: [id])
-  closedBy   User?   @relation("AccountingPeriodClosedBy", fields: [closedById], references: [id])
-  reopenedBy User?   @relation("AccountingPeriodReopenedBy", fields: [reopenedById], references: [id])
+  closedBy   User?   @relation("AccountingPeriodClosedBy", fields: [closedById], references: [id], onDelete: Restrict)
+  reopenedBy User?   @relation("AccountingPeriodReopenedBy", fields: [reopenedById], references: [id], onDelete: Restrict)
 
   // A company cannot have two periods with the same name, and the service
   // refuses overlapping ranges.
@@ -2012,6 +2016,20 @@ model Bill {
   mimeType         String
   fileSize         Int
   storageKey       String @unique
+  /// SHA-256 of the uploaded bytes. Lets a re-upload of the same file be spotted
+  /// (per company) without reading the file again. Nullable so existing rows,
+  /// written before this column existed, stay valid. Not unique: an intentional
+  /// re-upload is allowed, and one multi-invoice file legitimately yields
+  /// several bills that share these bytes.
+  checksum         String?
+
+  /// Duplicate-posting guard (M4). Set when a bill is posted WITHOUT
+  /// allowDuplicate: a hash of file checksum + direction + party + grand total +
+  /// invoice date. The unique index below makes two bill records for the same
+  /// invoice collide atomically at posting, even under concurrent confirmations.
+  /// Null for an intentional duplicate (allowDuplicate) and for every un-posted
+  /// bill; Postgres allows many NULLs, so only real fingerprints are deduplicated.
+  postingFingerprint String?
 
   /// Exactly what the extractor returned, kept verbatim for audit even after
   /// the user corrects it. Never posted from directly.
@@ -2042,13 +2060,18 @@ model Bill {
 
   company    Company @relation(fields: [companyId], references: [id])
   uploadedBy User    @relation("BillUploadedBy", fields: [uploadedById], references: [id])
-  postedBy   User?   @relation("BillPostedBy", fields: [postedById], references: [id])
+  postedBy   User?   @relation("BillPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
 
   // One bill can produce at most one accounting document. This is what makes
   // double-posting impossible at the database, not merely guarded in code.
   @@unique([companyId, postedSourceType, postedSourceId])
+  // Atomic cross-bill duplicate-posting guard (M4). NULLs are allowed in
+  // quantity (un-posted bills and intentional duplicates), so only real
+  // fingerprints conflict.
+  @@unique([companyId, postingFingerprint])
   @@index([companyId, status])
   @@index([companyId, createdAt])
+  @@index([companyId, checksum])
   @@map("bills")
 }
 

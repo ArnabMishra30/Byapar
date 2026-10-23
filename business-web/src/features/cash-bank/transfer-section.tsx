@@ -111,6 +111,16 @@ export function TransferSection() {
   );
 }
 
+/** A v4 UUID for transfer idempotency, with a fallback where crypto is absent. */
+function newIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 function TransferDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenChange: (open: boolean) => void; onDone: () => void }) {
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
@@ -118,6 +128,11 @@ function TransferDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenC
   const [date, setDate] = React.useState(toInputDate());
   const [notes, setNotes] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+
+  // One idempotency key per intended transfer: it survives a double-click or a
+  // retry so the backend records the transfer once, and is cleared after a
+  // success (and on reopen) so the NEXT transfer gets its own key. See M2.
+  const idempotencyKeyRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
@@ -127,12 +142,15 @@ function TransferDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenC
       setDate(toInputDate());
       setNotes("");
       setError(null);
+      idempotencyKeyRef.current = null;
     }
   }, [open]);
 
   const save = useMutation({
-    mutationFn: () => moneyAccountsApi.transfer({ fromAccountId: from, toAccountId: to, amount: amount.trim(), date, notes: notes.trim() || null }),
+    mutationFn: (idempotencyKey: string) =>
+      moneyAccountsApi.transfer({ fromAccountId: from, toAccountId: to, amount: amount.trim(), date, notes: notes.trim() || null, idempotencyKey }),
     onSuccess: () => {
+      idempotencyKeyRef.current = null;
       toast.success("Transfer recorded");
       onDone();
       onOpenChange(false);
@@ -146,7 +164,8 @@ function TransferDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenC
     if (from === to) return setError("Choose two different accounts");
     if (!/^\d+(\.\d{1,2})?$/.test(amount.trim()) || Number(amount) <= 0) return setError("Enter an amount");
     setError(null);
-    save.mutate();
+    if (!idempotencyKeyRef.current) idempotencyKeyRef.current = newIdempotencyKey();
+    save.mutate(idempotencyKeyRef.current);
   };
 
   return (
