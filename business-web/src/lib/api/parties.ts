@@ -104,9 +104,140 @@ export interface PartyInput {
 }
 
 export interface CreatePartyInput extends PartyInput {
-  relationship: PartyRelationship;
+  /** Optional: when omitted the backend creates a party as both sides. */
+  relationship?: PartyRelationship;
   /** Sent only after the shop has seen the similar parties and chosen "create new". */
   allowDuplicate?: boolean;
+}
+
+// --- the unified Vyapar-style statement ------------------------------------
+
+export type StatementType = "ALL" | "SALES" | "PURCHASES" | "RECEIPTS" | "PAYMENTS" | "RETURNS";
+
+export interface StatementParams {
+  fromDate?: string;
+  toDate?: string;
+  type?: StatementType;
+  search?: string;
+  includeItems?: boolean;
+}
+
+export interface StatementItem {
+  sno: number;
+  name: string;
+  hsn: string | null;
+  unit: string | null;
+  quantity: string;
+  unitPrice: string;
+  discount: string | null;
+  tax: string | null;
+  amount: string;
+}
+
+export interface StatementLine {
+  date: string | null;
+  side: "customer" | "supplier";
+  entryType: string;
+  kind: "SALE" | "PURCHASE" | "RECEIPT" | "PAYMENT" | "SALES_RETURN" | "PURCHASE_RETURN" | "OPENING" | string;
+  label: string;
+  documentId: string;
+  documentNumber: string | null;
+  referenceType: string;
+  reference: string | null;
+  dueDate: string | null;
+  paymentMethod: string | null;
+  /** A receipt's / payment's own metadata, shown beneath its row. Null elsewhere. */
+  payment: {
+    mode: string | null;
+    modeLabel: string | null;
+    reference: string | null;
+    notes: string | null;
+    allocated: string | null;
+    unallocated: string | null;
+    allocations: { documentNumber: string | null; amount: string }[];
+  } | null;
+  paymentStatus: string | null;
+  total: string;
+  receivedPaid: string;
+  /** The transaction's own amount at posting; not changed by later payments. */
+  txnBalance: string;
+  /** The document's live open amount after all allocations, or null. */
+  currentOutstanding: string | null;
+  debit: string;
+  credit: string;
+  receivableBalance: string;
+  payableBalance: string;
+  document: {
+    subtotal: string | null;
+    discount: string | null;
+    tax: string | null;
+    total: string | null;
+    outstanding: string | null;
+    paid: string | null;
+    items: StatementItem[] | null;
+    allocations: { documentNumber: string | null; amount: string }[] | null;
+  } | null;
+}
+
+export interface PartyStatement {
+  party: {
+    id: string;
+    name: string;
+    contactPerson: string | null;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+    gstin: string | null;
+    stateCode: string | null;
+    relationship: PartyRelationship | "NONE";
+    customerId: string | null;
+    supplierId: string | null;
+  };
+  company: {
+    name: string | null;
+    legalName: string | null;
+    address: string | null;
+    phone: string | null;
+    email: string | null;
+    gstin: string | null;
+    stateCode: string | null;
+    stateName: string | null;
+  };
+  period: { fromDate: string | null; toDate: string | null; label: string };
+  filters: { type: string; search: string | null; includeItems: boolean };
+  generatedAt: string;
+  openingReceivable: string;
+  openingPayable: string;
+  lines: StatementLine[];
+  summary: {
+    closingReceivable: string;
+    closingPayable: string;
+    customerAdvance: string;
+    supplierAdvance: string;
+    totalSales: string;
+    totalReceived: string;
+    totalPurchases: string;
+    totalPaid: string;
+    totalSalesReturns: string;
+    totalPurchaseReturns: string;
+    entryCount: number;
+    shownCount: number;
+  };
+  basis: string;
+}
+
+/** Statement query params as the backend reads them (booleans as strings). */
+function statementQuery(params?: StatementParams): Record<string, unknown> {
+  const query: Record<string, unknown> = {
+    fromDate: params?.fromDate,
+    toDate: params?.toDate,
+    type: params?.type,
+    search: params?.search,
+  };
+  // Only send includeItems when turning it OFF, so a dropped "false" cannot
+  // silently re-enable the per-document rows in a download.
+  if (params?.includeItems === false) query.includeItems = "false";
+  return query;
 }
 
 export const partiesApi = {
@@ -136,6 +267,22 @@ export const partiesApi = {
       { params: cleanParams(q) },
     );
     return res.data.data.matches;
+  },
+  /** The unified party statement: one merged ledger, two independent balances. */
+  statement: async (id: string, params?: StatementParams): Promise<PartyStatement> => {
+    const res = await apiClient.get<ApiSuccessResponse<PartyStatement>>(
+      `/parties/${id}/statement`,
+      { params: cleanParams(statementQuery(params)) },
+    );
+    return res.data.data;
+  },
+  /** The statement as a downloaded PDF or .xlsx, generated server-side. */
+  statementFile: async (id: string, format: "pdf" | "xlsx", params?: StatementParams): Promise<Blob> => {
+    const res = await apiClient.get(`/parties/${id}/statement.${format}`, {
+      params: cleanParams(statementQuery(params)),
+      responseType: "blob",
+    });
+    return res.data as Blob;
   },
 };
 

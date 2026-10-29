@@ -23,6 +23,8 @@
     "db:status:prod": "node --env-file=.env.production node_modules/prisma/build/index.js migrate status",
     "seed:demo": "node prisma/seed-demo.js",
     "seed:demo:parties": "node prisma/seed-demo-parties.js",
+    "seed:demo:unified": "node prisma/seed-demo-unified.js",
+    "seed:demo:reference": "node prisma/seed-demo-reference.js",
     "seed:demo:locations": "node prisma/seed-demo-locations.js",
     "seed:demo:shares": "node prisma/seed-demo-shares.js",
     "seed:demo:staff": "node prisma/seed-demo-staff.js",
@@ -41,11 +43,13 @@
     "@prisma/client": "^6.2.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.3.0",
+    "pdfmake": "^0.2.10",
     "zod": "^3.24.1"
   },
   "devDependencies": {

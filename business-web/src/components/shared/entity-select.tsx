@@ -53,9 +53,11 @@ const LOADERS: Record<EntityKind, (search: string, productKind?: "ITEM" | "ALL")
   },
 };
 
+// One unified party: whether the picker is for a sale or a purchase, the shop
+// chooses a "party", never a "customer" or "supplier".
 const TITLES: Record<EntityKind, string> = {
-  customer: "Choose customer",
-  supplier: "Choose supplier",
+  customer: "Choose party",
+  supplier: "Choose party",
   product: "Choose item",
 };
 
@@ -86,6 +88,8 @@ export function EntitySelect({
   const [adding, setAdding] = React.useState(false);
   const { can } = useAuth();
   const canAdd = kind === "customer" ? can("customers.create") : kind === "supplier" && can("parties.manage");
+  // A party when picking who to bill or buy from; an item when picking a product.
+  const noun = kind === "product" ? "item" : "party";
 
   // Debounced so typing does not fire a request per keystroke.
   const [debounced, setDebounced] = React.useState("");
@@ -128,7 +132,7 @@ export function EntitySelect({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{adding ? `Add new ${kind}` : TITLES[kind]}</DialogTitle>
+            <DialogTitle>{adding ? `Add new ${noun}` : TITLES[kind]}</DialogTitle>
           </DialogHeader>
 
           {adding && kind !== "product" ? (
@@ -153,7 +157,7 @@ export function EntitySelect({
               onClick={() => setAdding(true)}
             >
               <Plus className="h-4 w-4" />
-              {search.trim() ? `Add "${search.trim()}" as a new ${kind}` : `Add new ${kind}`}
+              {search.trim() ? `Add "${search.trim()}" as a new ${noun}` : `Add new ${noun}`}
             </Button>
           ) : null}
 

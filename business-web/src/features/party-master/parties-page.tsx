@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { partiesApi, type PartyListRow, type PartyRelationship } from "@/lib/api";
+import { partiesApi, type PartyListRow } from "@/lib/api";
 import { PageHeader } from "@/components/shared/page-header";
 import { DataTable, useListState, type Column } from "@/components/shared/data-table";
 import { Money } from "@/components/shared/money";
@@ -14,28 +14,19 @@ import { Button } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/select-native";
 import { DETAIL_ROUTES, ROUTES } from "@/lib/constants";
 import { cn, formatDate } from "@/lib/utils";
-import { RelationshipBadge } from "./relationship-badge";
-
-type Filter = "ALL" | PartyRelationship;
-
-const FILTERS: { value: Filter; label: string; countKey: "total" | "customers" | "suppliers" | "both" }[] = [
-  { value: "ALL", label: "All", countKey: "total" },
-  { value: "CUSTOMER", label: "Customers", countKey: "customers" },
-  { value: "SUPPLIER", label: "Suppliers", countKey: "suppliers" },
-  { value: "BOTH", label: "Both", countKey: "both" },
-];
 
 /**
  * Everyone the shop deals with, in one list.
  *
- * "Owes you" and "You owe" are two columns, never one: a party that is both a
- * customer and a supplier has two separate balances, each straight from its
- * own ledger. A dash means they are not that kind of party at all.
+ * ONE KIND OF PARTY. There is no customer / supplier / both classification -
+ * every party can buy and sell. "Owes you" and "You owe" are two columns, never
+ * one: a party that both buys and sells has two separate balances, each straight
+ * from its own ledger, and they are never netted. A dash means that side has no
+ * balance.
  */
 export function PartiesPage() {
   const router = useRouter();
   const list = useListState({ limit: 20 });
-  const [filter, setFilter] = React.useState<Filter>("ALL");
   const [active, setActive] = React.useState<"true" | "false" | "">("true");
 
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
@@ -45,18 +36,15 @@ export function PartiesPage() {
   }, [list.search]);
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["parties", "list", list.page, debouncedSearch, filter, active],
+    queryKey: ["parties", "list", list.page, debouncedSearch, active],
     queryFn: () =>
       partiesApi.list({
         page: list.page,
         limit: list.limit,
         search: debouncedSearch || undefined,
-        relationship: filter,
         isActive: active || undefined,
       }),
   });
-
-  const counts = useQuery({ queryKey: ["parties", "summary"], queryFn: () => partiesApi.summary() });
 
   const side = (value: string | null, tone: "in" | "out") =>
     value == null ? (
@@ -81,7 +69,6 @@ export function PartiesPage() {
       ),
     },
     { header: "Mobile", cell: (row) => row.phone || <span className="text-muted-foreground">—</span> },
-    { header: "Type", cell: (row) => <RelationshipBadge relationship={row.relationship} /> },
     { header: "Owes you", numeric: true, cell: (row) => side(row.receivable, "in") },
     { header: "You owe", numeric: true, cell: (row) => side(row.payable, "out") },
     {
@@ -89,7 +76,7 @@ export function PartiesPage() {
       hideOnMobile: true,
       cell: (row) =>
         row.lastTransactionDate ? (
-          <span className="whitespace-nowrap">{formatDate(row.lastTransactionDate)}</span>
+          <span className="text-xs text-muted-foreground">{formatDate(row.lastTransactionDate)}</span>
         ) : (
           <span className="text-muted-foreground">—</span>
         ),
@@ -98,7 +85,11 @@ export function PartiesPage() {
       header: "Status",
       hideOnMobile: true,
       cell: (row) =>
-        row.isActive ? <span className="text-xs text-muted-foreground">Active</span> : <span className="text-xs text-muted-foreground">Inactive</span>,
+        row.isActive ? (
+          <span className="text-xs text-muted-foreground">Active</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">Inactive</span>
+        ),
     },
     {
       header: "",
@@ -125,38 +116,9 @@ export function PartiesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Parties"
-        description="Everyone you sell to or buy from. A party can be a customer, a supplier, or both."
+        description="Everyone you sell to and buy from, in one place."
         actions={<Can do="parties.manage">{addButton()}</Can>}
       />
-
-      {/* A scrollable strip on a phone, so four filters never wrap awkwardly. */}
-      <div className="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
-        <div className="inline-flex gap-1 rounded-lg border bg-card p-1" role="tablist" aria-label="Show">
-          {FILTERS.map((option) => {
-            const selected = filter === option.value;
-            const count = counts.data?.[option.countKey];
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                onClick={() => {
-                  setFilter(option.value);
-                  list.setPage(1);
-                }}
-                className={cn(
-                  "min-h-[36px] whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors",
-                  selected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
-                )}
-              >
-                {option.label}
-                {count != null ? <span className="ml-1.5 tabular opacity-80">{count}</span> : null}
-              </button>
-            );
-          })}
-        </div>
-      </div>
 
       <DataTable
         columns={columns}
@@ -187,10 +149,7 @@ export function PartiesPage() {
         mobileCard={(row) => (
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-2">
-                <p className="truncate text-sm font-medium">{row.name}</p>
-                <RelationshipBadge relationship={row.relationship} />
-              </div>
+              <p className="truncate text-sm font-medium">{row.name}</p>
               <p className="mt-0.5 truncate text-xs text-muted-foreground">{row.phone || "No mobile"}</p>
               {!row.isActive ? <p className="text-xs text-muted-foreground">Inactive</p> : null}
             </div>
@@ -218,13 +177,11 @@ export function PartiesPage() {
               }
             : undefined
         }
-        emptyTitle={filter === "ALL" && active === "true" ? "No parties yet" : "No parties here"}
+        emptyTitle={active === "true" ? "No parties yet" : "No parties here"}
         emptyDescription={
-          filter === "ALL" && active === "true"
-            ? "Add the people and businesses you sell to and buy from."
-            : undefined
+          active === "true" ? "Add the people and businesses you sell to and buy from." : undefined
         }
-        emptyAction={filter === "ALL" && active === "true" ? <Can do="parties.manage">{addButton(true)}</Can> : undefined}
+        emptyAction={active === "true" ? <Can do="parties.manage">{addButton(true)}</Can> : undefined}
       />
     </div>
   );

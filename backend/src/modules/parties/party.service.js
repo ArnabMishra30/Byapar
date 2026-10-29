@@ -352,8 +352,17 @@ function assertMayCreate(currentUser, { relationship, customer, supplier }) {
 
 export async function create(currentUser, input) {
   const { companyId } = currentUser;
-  assertMayCreate(currentUser, input);
-  const { relationship, customer: customerTerms, supplier: supplierTerms, allowDuplicate } = input;
+  const { customer: customerTerms, supplier: supplierTerms, allowDuplicate } = input;
+
+  // A party no longer carries a "type" the shop must choose. When the form sends
+  // no relationship, an owner's party becomes BOTH a customer and a supplier at
+  // once - so the same party is usable in sales and in purchases immediately,
+  // with its two balances kept apart as always. A cashier, who may not create
+  // suppliers, gets the customer side only. An explicit relationship (from the
+  // old callers, or the "create new anyway" retry) is still honoured.
+  const relationship =
+    input.relationship ?? (hasShopPermission(currentUser, 'PARTIES_MANAGE') ? 'BOTH' : 'CUSTOMER');
+  assertMayCreate(currentUser, { relationship, customer: customerTerms, supplier: supplierTerms });
   const fields = pick(input, PARTY_KEYS);
 
   // Never create a second copy of somebody silently. The shop is shown what

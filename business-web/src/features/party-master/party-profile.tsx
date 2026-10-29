@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   ArrowUpRight,
   ExternalLink,
+  FileText,
   Link2,
   Mail,
   MapPin,
@@ -191,6 +192,14 @@ export function PartyProfile({ id }: { id: string }) {
           <div className="flex flex-wrap items-center gap-2" data-print-hide>
             <RelationshipBadge relationship={party.relationship} />
             {!party.isActive ? <StatusBadge status="INACTIVE" /> : null}
+            <Can do="reports.read">
+              <Button asChild variant="outline" size="sm" className="gap-1.5">
+                <Link href={DETAIL_ROUTES.partyStatement(id)}>
+                  <FileText className="h-4 w-4" />
+                  <span className="hidden sm:inline">Statement</span>
+                </Link>
+              </Button>
+            </Can>
             <Can do="parties.manage">
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditOpen(true)} aria-label="Edit">
                 <Pencil className="h-4 w-4" />

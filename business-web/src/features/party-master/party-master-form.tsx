@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, Loader2, ShoppingCart, Truck, Users } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { Field, FormSection } from "@/components/shared/form-parts";
 import { GstOnly } from "@/components/shared/gst-gate";
 import { Button } from "@/components/ui/button";
@@ -10,25 +10,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/components/ui/select-native";
 import { INDIAN_STATES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import type { PartyRelationship } from "@/lib/api/parties";
 import { validatePartyForm, type PartyFormValues } from "./party-payload";
-
-const RELATIONSHIPS: {
-  value: PartyRelationship;
-  label: string;
-  hint: string;
-  icon: React.ComponentType<{ className?: string }>;
-}[] = [
-  { value: "CUSTOMER", label: "Customer", hint: "Buys from you", icon: ShoppingCart },
-  { value: "SUPPLIER", label: "Supplier", hint: "You buy from them", icon: Truck },
-  { value: "BOTH", label: "Both", hint: "Buys and sells", icon: Users },
-];
 
 /**
  * The party form, for adding and for editing.
  *
- * SIMPLE FIRST: who they are to you, their name and mobile. Everything else -
- * address, GSTIN, PAN, payment days - sits behind "More details".
+ * ONE KIND OF PARTY. The shop no longer chooses "customer, supplier or both" -
+ * a new party is simply a party, usable for selling and buying alike, with its
+ * two balances kept apart by the backend. Name and mobile are all most shops
+ * fill in; address, GSTIN, PAN and payment days sit behind "More details".
  */
 export function PartyMasterForm({
   mode,
@@ -85,44 +75,11 @@ export function PartyMasterForm({
 
   return (
     <form onSubmit={submit} className="space-y-5" noValidate>
-      {mode === "create" ? (
-        <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">
-            Who are they to you?<span className="ml-0.5 text-destructive">*</span>
-          </legend>
-          <div className="grid grid-cols-3 gap-2" role="radiogroup">
-            {RELATIONSHIPS.map((option) => {
-              const selected = values.relationship === option.value;
-              const Icon = option.icon;
-              return (
-                <label
-                  key={option.value}
-                  className={cn(
-                    "flex min-h-[72px] min-w-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border p-2 text-center transition-colors",
-                    selected ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-muted/50",
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="relationship"
-                    value={option.value}
-                    checked={selected}
-                    onChange={() => setValues((current) => ({ ...current, relationship: option.value }))}
-                    className="sr-only"
-                  />
-                  <Icon className={cn("h-5 w-5", selected ? "text-primary" : "text-muted-foreground")} />
-                  <span className="text-sm font-semibold">{option.label}</span>
-                  <span className="text-[11px] leading-tight text-muted-foreground">{option.hint}</span>
-                </label>
-              );
-            })}
-          </div>
-          {values.relationship === "BOTH" ? (
-            <p className="text-xs text-muted-foreground">
-              You can sell to them and buy from them. What they owe you and what you owe them are kept separately.
-            </p>
-          ) : null}
-        </fieldset>
+      {mode === "create" && values.relationship === "BOTH" ? (
+        <p className="rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          You can sell to this party and buy from them. What they owe you and what you owe them are
+          kept as two separate balances.
+        </p>
       ) : null}
 
       <FormSection>

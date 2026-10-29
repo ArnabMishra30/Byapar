@@ -34,8 +34,11 @@ export function QuickAddParty({
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [matches, setMatches] = React.useState<PartyMatch[]>([]);
+  // The side this picker needs (sale -> customer, purchase -> supplier). Used
+  // only to add the missing side to an EXISTING party; a brand-new party is
+  // created with no type, so the backend makes it usable for both.
   const relationship = kind === "customer" ? "CUSTOMER" : "SUPPLIER";
-  const word = kind === "customer" ? "customer" : "supplier";
+  const word = "party";
 
   const finish = (id: string, label: string) => {
     queryClient.invalidateQueries({ queryKey: [kind] });
@@ -52,7 +55,6 @@ export function QuickAddParty({
       const party = await partiesApi.create({
         name: name.trim(),
         phone: phone.trim() || null,
-        relationship,
         ...(allowDuplicate ? { allowDuplicate: true } : {}),
       });
       const id = kind === "customer" ? party.customerId : party.supplierId;
@@ -112,7 +114,7 @@ export function QuickAddParty({
                     </span>
                   </span>
                   <span className="shrink-0 text-xs font-normal text-primary">
-                    {hasSide ? "Use this" : `Use & make ${word}`}
+                    {hasSide ? "Use this" : "Use this party"}
                   </span>
                 </Button>
               </li>

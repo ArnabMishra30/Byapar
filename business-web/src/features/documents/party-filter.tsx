@@ -32,7 +32,7 @@ export function PartyFilter({
           kind={kind}
           value={value?.id ?? ""}
           valueLabel={value?.label ?? ""}
-          placeholder={kind === "customer" ? "All customers" : "All suppliers"}
+          placeholder="All parties"
           onChange={(id, label) => onChange({ id, label })}
         />
       </div>
@@ -42,7 +42,7 @@ export function PartyFilter({
           variant="ghost"
           size="icon"
           className="h-11 w-11 shrink-0 sm:h-10 sm:w-10"
-          aria-label={kind === "customer" ? "Show all customers" : "Show all suppliers"}
+          aria-label="Show all parties"
           onClick={() => onChange(null)}
         >
           <X className="h-4 w-4" />

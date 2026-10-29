@@ -1,5 +1,19 @@
 import * as partyService from './party.service.js';
+import * as partyStatementService from './party-statement.service.js';
+import { renderStatementPdf } from './party-statement.pdf.js';
+import { renderStatementXlsx } from './party-statement.xlsx.js';
 import { sendSuccess, sendPaginated } from '../../utils/response.js';
+
+/** A download filename safe to put in a Content-Disposition header. */
+function statementFilename(name, extension) {
+  const base =
+    (name || 'party')
+      .replace(/[^a-zA-Z0-9 _-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .slice(0, 60) || 'party';
+  return `statement-${base}.${extension}`;
+}
 
 export async function list(req, res) {
   const { parties, pagination } = await partyService.list(req.user, req.validated.query);
@@ -70,6 +84,39 @@ export async function supplierLedger(req, res) {
 }
 
 export async function statement(req, res) {
-  const result = await partyService.statement(req.user, req.validated.params.id, req.validated.query);
+  const result = await partyStatementService.getPartyStatement(
+    req.user,
+    req.validated.params.id,
+    req.validated.query,
+  );
   return sendSuccess(res, result);
+}
+
+export async function statementPdf(req, res) {
+  const result = await partyStatementService.getPartyStatement(
+    req.user,
+    req.validated.params.id,
+    req.validated.query,
+  );
+  const pdf = await renderStatementPdf(result);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${statementFilename(result.party.name, 'pdf')}"`);
+  res.setHeader('Content-Length', pdf.length);
+  return res.end(pdf);
+}
+
+export async function statementExcel(req, res) {
+  const result = await partyStatementService.getPartyStatement(
+    req.user,
+    req.validated.params.id,
+    req.validated.query,
+  );
+  const xlsx = await renderStatementXlsx(result);
+  res.setHeader(
+    'Content-Type',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  );
+  res.setHeader('Content-Disposition', `attachment; filename="${statementFilename(result.party.name, 'xlsx')}"`);
+  res.setHeader('Content-Length', xlsx.length);
+  return res.end(xlsx);
 }

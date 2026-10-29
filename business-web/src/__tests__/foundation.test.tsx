@@ -225,8 +225,10 @@ describe("navigation covers the whole application", () => {
       "/shop/sales",
       "/shop/purchases",
       "/shop/stock",
-      "/shop/customers",
-      "/shop/suppliers",
+      // Parties is the single place for customers and suppliers now; the
+      // separate /shop/customers and /shop/suppliers menus were removed, so they
+      // are no longer required in the navigation (their pages still exist).
+      "/shop/parties",
       "/shop/credit-book",
       "/shop/money/received",
       "/shop/money/paid",

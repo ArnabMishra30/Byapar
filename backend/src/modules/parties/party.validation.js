@@ -82,7 +82,14 @@ export const createPartySchema = z
   .object({
     name: nameSchema('Party name'),
     ...commonFields,
-    relationship: relationshipSchema,
+    /**
+     * Optional. A party is just a party now - the shop does not pick a type.
+     * When omitted the service creates BOTH sides (for an owner) so the party is
+     * usable in sales and purchases at once, or the customer side only for a
+     * cashier who may not add suppliers. Still accepted for the old callers and
+     * for the "create new anyway" path that re-sends what it tried before.
+     */
+    relationship: relationshipSchema.optional(),
     customer: roleTermsSchema.optional(),
     supplier: roleTermsSchema.optional(),
     /**
@@ -142,6 +149,46 @@ export const linkPartySchema = z
     message: 'Send exactly one of customerId or supplierId',
   });
 
-// Ledger and statement windows reuse the credit module's schema, so a party's
-// statement accepts exactly the dates a customer's or supplier's does.
+// Ledger windows reuse the credit module's schema, so a party's ledger accepts
+// exactly the dates a customer's or supplier's does.
 export { statementQuerySchema as partyLedgerQuerySchema } from '../credit/credit.validation.js';
+
+// --- the unified party statement -------------------------------------------
+
+/** A business date, "YYYY-MM-DD", stored at UTC midnight so it cannot shift. */
+function businessDate(label) {
+  return z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, `${label} must be in YYYY-MM-DD format`)
+    .transform((value) => new Date(`${value}T00:00:00.000Z`))
+    .refine((value) => !Number.isNaN(value.getTime()), { message: `${label} is not a valid date` })
+    .optional();
+}
+
+/**
+ * The Vyapar-style party statement: a date window, a transaction-type filter, a
+ * reference search, and whether to include the per-document item rows. The
+ * running receivable and payable are always computed over the whole window; the
+ * type and search filters only decide which rows are returned, so the balances
+ * stay the party's real position. PDF and Excel downloads share this schema.
+ */
+export const partyStatementQuerySchema = z
+  .object({
+    fromDate: businessDate('fromDate'),
+    toDate: businessDate('toDate'),
+    type: z
+      .enum(['ALL', 'SALES', 'PURCHASES', 'RECEIPTS', 'PAYMENTS', 'RETURNS'])
+      .optional()
+      .default('ALL'),
+    search: z.string().trim().max(100).optional(),
+    // Query strings arrive as text; accept "false"/"0" as off.
+    includeItems: z
+      .enum(['true', 'false', '0', '1'])
+      .optional()
+      .default('true')
+      .transform((value) => value === 'true' || value === '1'),
+  })
+  .refine((value) => !value.fromDate || !value.toDate || value.fromDate <= value.toDate, {
+    message: 'fromDate must not be after toDate',
+    path: ['fromDate'],
+  });

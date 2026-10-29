@@ -221,9 +221,15 @@ describe('creating parties', () => {
     expect(good.body.data.party.supplier.gstRegistrationType).toBe('REGULAR');
   });
 
-  it('requires a relationship', async () => {
+  it('needs no relationship: an owner\'s party is created as both sides', async () => {
+    // The shop no longer picks a type. A party created with just a name becomes
+    // both a customer and a supplier, so it is usable in sales and purchases at
+    // once, with the two balances still kept apart.
     const res = await createParty(adminA, { name: 'Nobody Yet' });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(201);
+    expect(res.body.data.party.relationship).toBe('BOTH');
+    expect(res.body.data.party.customerId).toBeTruthy();
+    expect(res.body.data.party.supplierId).toBeTruthy();
   });
 
   it('writes no journal entry: a party is master data', async () => {

@@ -29,7 +29,10 @@ export interface PartyFormValues {
 }
 
 export const EMPTY_PARTY_FORM: PartyFormValues = {
-  relationship: "CUSTOMER",
+  // A new party is both sides by default: the shop no longer picks a type, and
+  // the party is usable in sales and purchases at once (two balances, kept
+  // apart). A deep link may still preset CUSTOMER or SUPPLIER.
+  relationship: "BOTH",
   name: "",
   phone: "",
   alternatePhone: "",

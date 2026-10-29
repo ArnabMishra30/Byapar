@@ -126,6 +126,7 @@ export const DETAIL_ROUTES = {
   customer: (id: string) => `${SHOP_PREFIX}/customers/${id}`,
   supplier: (id: string) => `${SHOP_PREFIX}/suppliers/${id}`,
   party: (id: string) => `${SHOP_PREFIX}/parties/${id}`,
+  partyStatement: (id: string) => `${SHOP_PREFIX}/parties/${id}/statement`,
   bill: (id: string) => `${SHOP_PREFIX}/bills/${id}`,
 };
 
@@ -242,29 +243,16 @@ export const NAVIGATION: NavSection[] = [
     ],
   },
   {
+    // ONE place for everyone the shop deals with. A party is both a customer
+    // and a supplier as needed, so there are no separate Customers / Suppliers
+    // menus any more. Those screens still exist and open from a party's profile
+    // and from a document, but the shop manages people here, under Parties.
     title: "Parties",
     items: [
       { title: "All Parties", href: ROUTES.parties, icon: "Users" },
       { title: "Add Party", href: ROUTES.newParty, icon: "UserPlus", requires: "parties.manage" },
-    ],
-  },
-  {
-    title: "Customers",
-    items: [
-      { title: "Customers", href: ROUTES.customers, icon: "UserCheck" },
-      { title: "Add Customer", href: ROUTES.newCustomer, icon: "UserPlus", requires: "parties.manage" },
-      {
-        title: "Bulk Upload Customers",
-        href: ROUTES.importCustomers,
-        icon: "Upload",
-        adminOnly: true,
-      },
       { title: "Credit Book", href: ROUTES.creditBook, icon: "BookOpen", requires: "reports.read" },
     ],
-  },
-  {
-    title: "Suppliers",
-    items: [{ title: "Suppliers", href: ROUTES.suppliers, icon: "Truck", requires: "purchases.read" }],
   },
   {
     title: "Money",

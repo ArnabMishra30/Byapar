@@ -9,6 +9,7 @@ import {
   addRelationshipSchema,
   linkPartySchema,
   partyLedgerQuerySchema,
+  partyStatementQuerySchema,
 } from './party.validation.js';
 import { validate } from '../../middlewares/validate.js';
 import { requireAuth } from '../../middlewares/require-auth.js';
@@ -49,11 +50,26 @@ partyRoutes.get(
   validate({ params: idParamSchema, query: partyLedgerQuerySchema }),
   partyController.supplierLedger,
 );
+// The unified Vyapar-style statement, and its downloads. All three read the
+// same authoritative data; the two files are generated server-side, not scraped
+// from the page. REPORTS_VIEW gates them exactly as the per-side ledgers above.
 partyRoutes.get(
   '/:id/statement',
   requireShopPermission('REPORTS_VIEW'),
-  validate({ params: idParamSchema, query: partyLedgerQuerySchema }),
+  validate({ params: idParamSchema, query: partyStatementQuerySchema }),
   partyController.statement,
+);
+partyRoutes.get(
+  '/:id/statement.pdf',
+  requireShopPermission('REPORTS_VIEW'),
+  validate({ params: idParamSchema, query: partyStatementQuerySchema }),
+  partyController.statementPdf,
+);
+partyRoutes.get(
+  '/:id/statement.xlsx',
+  requireShopPermission('REPORTS_VIEW'),
+  validate({ params: idParamSchema, query: partyStatementQuerySchema }),
+  partyController.statementExcel,
 );
 
 // CUSTOMERS_CREATE (a cashier at the counter) may add a plain customer; the
