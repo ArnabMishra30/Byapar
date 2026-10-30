@@ -443,11 +443,11 @@ export function QuickBillingScreen() {
               </Field>
               <Can do="parties.manage">
                 <Link
-                  href={ROUTES.newCustomer}
+                  href={ROUTES.newParty}
                   className="inline-flex min-h-[2.75rem] items-center gap-1.5 text-sm font-medium text-primary hover:underline"
                 >
                   <UserPlus className="h-4 w-4" aria-hidden />
-                  New customer? Add them first
+                  New party? Add them first
                 </Link>
               </Can>
 
