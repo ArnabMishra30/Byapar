@@ -234,7 +234,7 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
   };
 
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: async ({ post }: { post: boolean }) => {
       const body = buildDocumentBody({
         partyField: config.partyField,
         partyId,
@@ -252,14 +252,32 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
             : null,
         lines,
       });
-      return docId ? config.api.update(docId, body) : config.api.create(body);
+      const saved = docId ? await config.api.update(docId, body) : await config.api.create(body);
+      const id = String((saved as { id?: string }).id ?? docId);
+      if (!post) return { id, posted: false, postError: undefined as unknown };
+      // Saved; now complete it. If posting fails (credit limit, stock, a closed
+      // period) the draft is safe - land on it with the reason, nothing lost.
+      try {
+        await config.api.post(id);
+        return { id, posted: true, postError: undefined as unknown };
+      } catch (err) {
+        return { id, posted: false, postError: err as unknown };
+      }
     },
-    onSuccess: (doc) => {
+    onSuccess: ({ id, posted, postError }) => {
       queryClient.invalidateQueries({ queryKey: [kind] });
-      toast.success(isEdit ? "Draft updated" : "Saved as a draft", {
-        description: "The totals below are worked out by the system. Complete it when it looks right.",
-      });
-      router.replace(config.detailHref(String((doc as { id?: string }).id ?? docId)));
+      if (postError) {
+        toast.error("Saved as a draft, but couldn't complete it", {
+          description: postError instanceof ApiError ? postError.message : "Open the draft to try again.",
+        });
+      } else if (posted) {
+        toast.success(`${config.noun} completed`);
+      } else {
+        toast.success(isEdit ? "Draft updated" : "Saved as a draft", {
+          description: "The totals below are worked out by the system. Complete it when it looks right.",
+        });
+      }
+      router.replace(config.detailHref(id));
     },
     onError: (err) => {
       if (err instanceof ApiError && err.fieldErrors?.length) {
@@ -298,6 +316,8 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
 
   const backHref = docId ? config.detailHref(docId) : config.homeHref;
   const partySectionTitle = kind === "sale" ? "Customer & date" : "Supplier & bill";
+  // Whoever may post can complete in one step; others only draft (maker-checker).
+  const canPost = can(config.postCapability);
 
   // A pre-tax running estimate for live feedback only; the server sets the real
   // total on save. See estimateLineAmount.
@@ -319,7 +339,7 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (validate()) save.mutate();
+          if (validate()) save.mutate({ post: false });
         }}
         className="space-y-6"
         noValidate
@@ -520,10 +540,40 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
             <Button asChild type="button" variant="outline" className="min-h-[44px] flex-1 lg:flex-none">
               <Link href={backHref}>Cancel</Link>
             </Button>
-            <Button type="submit" className="min-h-[44px] flex-1 lg:flex-none" disabled={save.isPending}>
-              {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {isEdit ? "Save changes" : "Save draft"}
-            </Button>
+            {canPost ? (
+              <>
+                {/* Save draft is the form's submit (so Enter saves a draft, never posts). */}
+                <Button
+                  type="submit"
+                  variant="outline"
+                  className="min-h-[44px] flex-1 lg:flex-none"
+                  disabled={save.isPending}
+                >
+                  {save.isPending && save.variables?.post === false ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  {isEdit ? "Save changes" : "Save draft"}
+                </Button>
+                <Button
+                  type="button"
+                  className="min-h-[44px] flex-1 lg:flex-none"
+                  disabled={save.isPending}
+                  onClick={() => {
+                    if (validate()) save.mutate({ post: true });
+                  }}
+                >
+                  {save.isPending && save.variables?.post === true ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  Save &amp; complete
+                </Button>
+              </>
+            ) : (
+              <Button type="submit" className="min-h-[44px] flex-1 lg:flex-none" disabled={save.isPending}>
+                {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {isEdit ? "Save changes" : "Save draft"}
+              </Button>
+            )}
           </div>
         </div>
       </form>
