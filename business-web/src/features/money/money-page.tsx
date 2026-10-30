@@ -454,6 +454,9 @@ function PaymentForm({
   const [reference, setReference] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [allocations, setAllocations] = React.useState<Record<string, string>>({});
+  // False until the user assigns against a bill by hand; while false the amount
+  // is spread across the open bills automatically (oldest first).
+  const [manual, setManual] = React.useState(false);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [saved, setSaved] = React.useState<Payment | null>(null);
 
@@ -469,6 +472,28 @@ function PaymentForm({
   const typed = Object.values(allocations).filter((value) => value.trim() !== "");
   const left = leftToAssign(amount, typed);
   const overAssigned = left.startsWith("-");
+
+  // Spread the amount across the open bills, oldest first, so it is typed once.
+  // Integer paise avoids float drift; anything beyond the bills stays an advance.
+  // Backs off the moment the user assigns by hand (manual).
+  const billsKey = openBills.map((bill) => `${bill.id}:${bill.outstandingAmount}`).join("|");
+  React.useEffect(() => {
+    if (manual) return;
+    const next: Record<string, string> = {};
+    let remaining = isAmount(amount) ? Math.round(Number(amount) * 100) : 0;
+    for (const bill of openBills) {
+      if (remaining <= 0) break;
+      const due = Math.round(Number(bill.outstandingAmount) * 100);
+      const give = Math.min(remaining, due);
+      if (give > 0) {
+        next[bill.id] = (give / 100).toFixed(2);
+        remaining -= give;
+      }
+    }
+    setAllocations(next);
+    // openBills is captured by billsKey; listing it would re-run every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount, billsKey, manual]);
 
   const create = useMutation({
     mutationFn: () =>
@@ -565,7 +590,7 @@ function PaymentForm({
             <DialogHeader>
               <DialogTitle>{config.addLabel}</DialogTitle>
               <DialogDescription>
-                Put the amount against the bills it pays. Anything not put against a bill is kept as an advance.
+                The amount is applied to the oldest bills first. Change any line to split it differently; anything left over is kept as an advance.
               </DialogDescription>
             </DialogHeader>
 
@@ -588,6 +613,7 @@ function PaymentForm({
                       setPartyId(id);
                       setPartyLabel(label);
                       setAllocations({});
+                      setManual(false);
                     }}
                   />
                 </Field>
@@ -683,18 +709,20 @@ function PaymentForm({
                                   placeholder="0"
                                   className="text-right"
                                   value={allocations[bill.id] ?? ""}
-                                  onChange={(event) =>
-                                    setAllocations((prev) => ({ ...prev, [bill.id]: event.target.value }))
-                                  }
+                                  onChange={(event) => {
+                                    setManual(true);
+                                    setAllocations((prev) => ({ ...prev, [bill.id]: event.target.value }));
+                                  }}
                                 />
                               </div>
                               <Button
                                 type="button"
                                 variant="outline"
                                 className="h-10 shrink-0 px-3 text-xs"
-                                onClick={() =>
-                                  setAllocations((prev) => ({ ...prev, [bill.id]: bill.outstandingAmount }))
-                                }
+                                onClick={() => {
+                                  setManual(true);
+                                  setAllocations((prev) => ({ ...prev, [bill.id]: bill.outstandingAmount }));
+                                }}
                               >
                                 Full {config.dueWord.toLowerCase()}
                               </Button>
@@ -704,6 +732,16 @@ function PaymentForm({
                       })}
                     </ul>
                   )}
+
+                  {manual && openBills.length > 0 ? (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-primary hover:underline"
+                      onClick={() => setManual(false)}
+                    >
+                      Split the amount automatically
+                    </button>
+                  ) : null}
 
                   {errors.allocations ? <p className="text-xs text-destructive">{errors.allocations}</p> : null}
 
