@@ -496,8 +496,8 @@ function PaymentForm({
   }, [amount, billsKey, manual]);
 
   const create = useMutation({
-    mutationFn: () =>
-      config.api.create({
+    mutationFn: async ({ post }: { post: boolean }) => {
+      const payment = await config.api.create({
         [config.partyParam]: partyId,
         paymentDate,
         amount: amount.trim(),
@@ -508,10 +508,30 @@ function PaymentForm({
         allocations: Object.entries(allocations)
           .filter(([, value]) => isAmount(value) && Number(value) > 0)
           .map(([billId, value]) => ({ [config.billKey]: billId, amount: value.trim() })),
-      }),
-    onSuccess: (payment) => {
-      setSaved(payment);
+      });
+      if (!post) return { payment, posted: false, postError: undefined as unknown };
+      // Saved; now record it to the books. If posting fails, the draft is safe -
+      // show it so the reason is clear and posting can be retried.
+      try {
+        const posted = await config.api.post(payment.id);
+        return { payment: posted, posted: true, postError: undefined as unknown };
+      } catch (err) {
+        return { payment, posted: false, postError: err as unknown };
+      }
+    },
+    onSuccess: ({ payment, posted, postError }) => {
       onSaved();
+      if (posted) {
+        toast.success("Payment recorded. Balances updated.");
+        onClose();
+        return;
+      }
+      if (postError) {
+        toast.error("Saved as a draft, but couldn't record it", {
+          description: postError instanceof ApiError ? postError.message : "Post it from the list to try again.",
+        });
+      }
+      setSaved(payment);
     },
     onError: (err) => {
       if (err instanceof ApiError && err.fieldErrors?.length) {
@@ -528,7 +548,7 @@ function PaymentForm({
     },
   });
 
-  const submit = () => {
+  const submit = (post: boolean) => {
     const next: Record<string, string> = {};
     if (!partyId) next.party = `Choose a ${config.partyLabel.toLowerCase()}`;
     if (!isAmount(amount) || Number(amount) <= 0) next.amount = "Enter an amount, like 500 or 500.50";
@@ -541,7 +561,7 @@ function PaymentForm({
       if (tooMuch) next.allocations = `More than is due on ${config.billNumber(tooMuch)}`;
     }
     setErrors(next);
-    if (Object.keys(next).length === 0) create.mutate();
+    if (Object.keys(next).length === 0) create.mutate({ post });
   };
 
   return (
@@ -597,7 +617,7 @@ function PaymentForm({
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                submit();
+                submit(false);
               }}
               className="space-y-5"
               noValidate
@@ -766,9 +786,19 @@ function PaymentForm({
                 <Button type="button" variant="outline" onClick={onClose} disabled={create.isPending}>
                   Cancel
                 </Button>
-                <Button type="submit" disabled={create.isPending}>
-                  {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {/* Save draft is the form's submit, so Enter only ever drafts - posting,
+                    which touches cash/bank and balances, is always a deliberate click. */}
+                <Button type="submit" variant="outline" disabled={create.isPending}>
+                  {create.isPending && create.variables?.post === false ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
                   Save draft
+                </Button>
+                <Button type="button" disabled={create.isPending} onClick={() => submit(true)}>
+                  {create.isPending && create.variables?.post === true ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  Record payment
                 </Button>
               </DialogFooter>
             </form>
