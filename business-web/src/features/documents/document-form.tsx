@@ -571,7 +571,19 @@ function LineEditor({
           value={line.productId}
           valueLabel={line.productLabel}
           invalid={Boolean(errors[`prod-${line.key}`])}
-          onChange={(id, name) => onChange({ productId: id, productLabel: name, taxId: null })}
+          onChange={(id, name, meta) => {
+            // Prefill the rate from the product: its selling price on a sale,
+            // its purchase price on a purchase. Left alone when the product has
+            // no price set, so a zero does not wipe a rate typed by hand.
+            const price = docKind === "purchase" ? meta?.purchasePrice : meta?.sellingPrice;
+            const amount = price != null && Number(price) > 0 ? String(Number(price)) : undefined;
+            onChange({
+              productId: id,
+              productLabel: name,
+              taxId: null,
+              ...(amount !== undefined ? { amount } : {}),
+            });
+          }}
         />
         <LineError message={errors[`prod-${line.key}`]} />
         {line.offerId ? (

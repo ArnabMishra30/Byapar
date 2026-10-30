@@ -32,6 +32,9 @@ interface Option {
   /** For a customer/supplier pick: the party, and its id on THIS side (null when the side does not exist yet). */
   partyId?: string;
   sideId?: string | null;
+  /** For a product pick: its prices, so the line can prefill the rate. */
+  sellingPrice?: string | null;
+  purchasePrice?: string | null;
 }
 
 const LOADERS: Record<EntityKind, (search: string, productKind?: "ITEM" | "ALL") => Promise<Option[]>> = {
@@ -56,6 +59,8 @@ const LOADERS: Record<EntityKind, (search: string, productKind?: "ITEM" | "ALL")
       sublabel: p.isCombo
         ? `Combo · can make ${p.availability?.total ?? 0}`
         : p.sku ?? undefined,
+      sellingPrice: p.sellingPrice ?? null,
+      purchasePrice: p.purchasePrice ?? null,
     }));
   },
 };
@@ -82,7 +87,12 @@ export function EntitySelect({
   value?: string | null;
   /** Shown when a value is set, so the label survives without re-fetching. */
   valueLabel?: string | null;
-  onChange: (id: string, label: string) => void;
+  onChange: (
+    id: string,
+    label: string,
+    /** For a product pick: its prices, so the caller can prefill the line rate. */
+    meta?: { sellingPrice?: string | null; purchasePrice?: string | null },
+  ) => void;
   placeholder?: string;
   disabled?: boolean;
   invalid?: boolean;
@@ -129,7 +139,10 @@ export function EntitySelect({
   // party. The two sub-ledgers stay separate; this only makes the party usable.
   const choose = async (option: Option) => {
     if (kind === "product") {
-      onChange(option.id, option.label);
+      onChange(option.id, option.label, {
+        sellingPrice: option.sellingPrice ?? null,
+        purchasePrice: option.purchasePrice ?? null,
+      });
       close();
       return;
     }
