@@ -299,6 +299,14 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
   const backHref = docId ? config.detailHref(docId) : config.homeHref;
   const partySectionTitle = kind === "sale" ? "Customer & date" : "Supplier & bill";
 
+  // A pre-tax running estimate for live feedback only; the server sets the real
+  // total on save. See estimateLineAmount.
+  const subtotalEstimate = lines.reduce((sum, line) => {
+    if (!line.productId) return sum;
+    const amount = estimateLineAmount(line);
+    return amount == null ? sum : sum + amount;
+  }, 0);
+
   return (
     <div className="space-y-6">
       <BackLink href={backHref} label={docId ? config.numberOf(initial ?? {}) || "Back" : config.noun + "s"} />
@@ -469,12 +477,18 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
               ))}
             </div>
 
-            <div className="flex items-start gap-2 rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
-              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <p>
-                Totals are calculated by the server when you save — tax, discounts and the final
-                amount appear on the {kind === "sale" ? "invoice" : "bill"} straight after.
-              </p>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2.5 text-sm">
+                <span className="font-medium">Subtotal (before tax)</span>
+                <span className="font-semibold tabular-nums">≈ {formatInrEstimate(subtotalEstimate)}</span>
+              </div>
+              <div className="flex items-start gap-2 rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <p>
+                  An estimate from quantity × {config.amountLabel.toLowerCase()} − discount. The server adds tax
+                  and sets the final {kind === "sale" ? "invoice" : "bill"} total when you save.
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -517,6 +531,30 @@ function DocumentFormBody({ kind, initial }: { kind: DocKind; initial?: Record<s
   );
 }
 
+// A DISPLAY-ONLY estimate, so the counter watches the amount grow with the
+// quantity. It is never sent and never shown as the final figure: the saved
+// document is priced by the server (tax, rounding, combos, offers). This is the
+// pre-tax line value, quantity x rate - discount. Returns null when there is
+// nothing to show yet (no quantity or no rate), so a line reads blank, not 0.
+function estimateLineAmount(line: LineRow): number | null {
+  if (line.isFree) return 0;
+  if (line.quantity.trim() === "" || line.amount.trim() === "") return null;
+  const qty = Number(line.quantity);
+  const price = Number(line.amount);
+  if (!Number.isFinite(qty) || !Number.isFinite(price) || qty <= 0 || price < 0) return null;
+  const gross = qty * price;
+  const discount = Number(line.discountValue || 0);
+  if (!Number.isFinite(discount) || discount <= 0) return gross;
+  const off =
+    line.discountType === "PERCENTAGE" ? (gross * Math.min(discount, 100)) / 100 : Math.min(discount, gross);
+  return Math.max(0, gross - off);
+}
+
+/** Rupees with Indian grouping, for the estimate only (backend figures use <Money/>). */
+function formatInrEstimate(n: number): string {
+  return `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function LineEditor({
   index,
   line,
@@ -544,6 +582,8 @@ function LineEditor({
   const amtId = `amt-${line.key}`;
   const discId = `disc-${line.key}`;
   const label = "text-xs font-medium text-muted-foreground md:sr-only";
+  // Pre-tax line estimate, shown only once there is a quantity and a rate.
+  const estimate = line.isFree ? null : estimateLineAmount(line);
 
   return (
     <div className="rounded-lg border bg-muted/20 p-3 md:grid md:grid-cols-[minmax(0,1fr)_6rem_8rem_11rem_2.75rem] md:items-start md:gap-3 md:rounded-none md:border-0 md:border-b md:bg-transparent md:px-0 md:py-3">
@@ -672,6 +712,12 @@ function LineEditor({
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
+
+      {estimate !== null ? (
+        <div className="mt-1 text-right text-xs text-muted-foreground md:col-span-full md:mt-0">
+          <span className="md:hidden">Amount: </span>≈ {formatInrEstimate(estimate)}
+        </div>
+      ) : null}
     </div>
   );
 }
