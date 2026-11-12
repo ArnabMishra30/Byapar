@@ -194,7 +194,7 @@ export function QuickBillingScreen() {
 
   const validate = () => {
     const next: Record<string, string> = {};
-    if (!customerId) next.customer = "Choose the customer";
+    if (!customerId) next.customer = "Choose the party";
     if (!warehouseId) next.warehouse = "Choose where the stock goes out from";
     if (!invoiceDate) next.invoiceDate = "Pick a date";
     if (lines.length === 0) next.lines = "Add at least one item";
@@ -407,7 +407,7 @@ export function QuickBillingScreen() {
     <div className="space-y-6">
       <PageHeader
         title="Quick Billing"
-        description="Pick the customer, add items, save. The total comes from your books."
+        description="Pick the party, add items, save. The total comes from your books."
         actions={
           draft ? (
             <Button asChild variant="ghost" size="sm">
@@ -422,17 +422,17 @@ export function QuickBillingScreen() {
         <div className="space-y-6">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Customer</CardTitle>
+              <CardTitle className="text-sm">Party</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Field label="Customer" required error={errors.customer}>
+              <Field label="Party" required error={errors.customer}>
                 <EntitySelect
                   kind="customer"
                   value={customerId}
                   valueLabel={customerLabel}
                   disabled={locked}
                   invalid={Boolean(errors.customer)}
-                  placeholder="Choose the customer"
+                  placeholder="Choose the party"
                   onChange={(id, label) => {
                     edited();
                     setCustomerId(id);
@@ -672,7 +672,7 @@ export function QuickBillingScreen() {
                 ) : (
                   <p className="text-xs text-muted-foreground">
                     A draft changes nothing. Completing it takes the stock out and adds the bill to
-                    the customer&apos;s account.
+                    the party&apos;s account.
                   </p>
                 )}
               </div>

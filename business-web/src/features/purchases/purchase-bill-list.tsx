@@ -13,7 +13,7 @@ export function PurchaseBillList() {
         {
           title: "Filter by paid / unpaid / part paid",
           description:
-            "The server cannot filter bills by payment status yet. Each row shows its status; Supplier Payables lists every unpaid bill.",
+            "The server cannot filter bills by payment status yet. Each row shows its status; Payables lists every unpaid bill.",
         },
       ]}
     />
