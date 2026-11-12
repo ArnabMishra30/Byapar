@@ -48,6 +48,8 @@ const nextConfig = {
       { source: "/shop/money-in", destination: "/shop/money/received", permanent: false },
       { source: "/shop/money-out", destination: "/shop/money/paid", permanent: false },
       { source: "/shop/reports", destination: "/shop/reports/sales", permanent: false },
+      { source: "/shop/reports/customers", destination: "/shop/reports/parties", permanent: false },
+      { source: "/shop/reports/suppliers", destination: "/shop/reports/parties", permanent: false },
       { source: "/shop/money", destination: "/shop/money/received", permanent: false },
     ];
   },

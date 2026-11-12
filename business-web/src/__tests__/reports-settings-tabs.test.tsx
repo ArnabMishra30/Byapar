@@ -33,7 +33,7 @@ describe("report tabs", () => {
 
   it("lists every report page and marks the current one", () => {
     render(<ReportTabs />);
-    for (const label of ["Sales", "Purchases", "Stock", "Customers", "Suppliers", "Expenses", "Profit & Loss"]) {
+    for (const label of ["Sales", "Purchases", "Stock", "Parties", "Expenses", "Profit & Loss"]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument();
     }
     expect(screen.getByRole("link", { name: "Sales" }).getAttribute("aria-current")).toBe("page");
