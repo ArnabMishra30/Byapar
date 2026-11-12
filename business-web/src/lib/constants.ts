@@ -228,7 +228,7 @@ export const NAVIGATION: NavSection[] = [
       { title: "Purchases", href: ROUTES.purchases, icon: "ShoppingCart", requires: "purchases.read" },
       { title: "Purchase Bills", href: ROUTES.purchaseBills, icon: "FileText", requires: "purchases.read" },
       { title: "Purchase Returns", href: ROUTES.purchaseReturns, icon: "Undo2", requires: "purchases.read" },
-      { title: "Supplier Payables", href: ROUTES.supplierPayables, icon: "HandCoins", requires: "purchases.read" },
+      { title: "Payables", href: ROUTES.supplierPayables, icon: "HandCoins", requires: "purchases.read" },
     ],
   },
   {

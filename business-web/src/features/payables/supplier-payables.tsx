@@ -66,15 +66,15 @@ export function SupplierPayables() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Supplier Payables"
-        description="How much you owe each supplier, and which bills are due."
+        title="Payables"
+        description="How much you owe each party, and which bills are due."
       />
       <PurchaseModuleTabs />
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <TabsList className="grid w-full grid-cols-2 sm:inline-grid sm:w-auto">
           <TabsTrigger value="suppliers" className="min-h-[40px]">
-            By supplier
+            By party
           </TabsTrigger>
           <TabsTrigger value="bills" className="min-h-[40px]">
             Bills due
@@ -118,11 +118,11 @@ function BySupplier() {
 
   const columns: Column<CreditPartyRow>[] = [
     {
-      header: "Supplier",
+      header: "Party",
       cell: (row) => (
         <div className="min-w-0">
           <Link
-            href={DETAIL_ROUTES.supplier(row.partyId)}
+            href={DETAIL_ROUTES.party(row.partyId)}
             className="block max-w-[14rem] truncate font-medium hover:text-primary"
           >
             {row.name}
@@ -182,7 +182,7 @@ function BySupplier() {
     <>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
-          label="You owe suppliers"
+          label="You owe"
           value={<Money value={summary?.total ?? "0"} />}
           icon={IndianRupee}
           tone="dues"
@@ -191,7 +191,7 @@ function BySupplier() {
         <StatCard
           label="Overdue"
           value={<Money value={summary?.overdue ?? "0"} />}
-          hint={summary ? `${summary.overduePartyCount} supplier${summary.overduePartyCount === 1 ? "" : "s"}` : undefined}
+          hint={summary ? `${summary.overduePartyCount} part${summary.overduePartyCount === 1 ? "y" : "ies"}` : undefined}
           icon={AlertTriangle}
           tone="credit"
           isLoading={all.isLoading}
@@ -203,7 +203,7 @@ function BySupplier() {
           isLoading={all.isLoading}
         />
         <StatCard
-          label="Suppliers to pay"
+          label="Parties to pay"
           value={summary?.partyCount ?? 0}
           icon={Truck}
           isLoading={all.isLoading}
@@ -222,7 +222,7 @@ function BySupplier() {
         }}
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search supplier"
+        searchPlaceholder="Search party"
         filters={
           <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-sm sm:min-h-0">
             <input
@@ -238,7 +238,7 @@ function BySupplier() {
           <div className="space-y-2">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <Link href={DETAIL_ROUTES.supplier(row.partyId)} className="block truncate text-sm font-medium">
+                <Link href={DETAIL_ROUTES.party(row.partyId)} className="block truncate text-sm font-medium">
                   {row.name}
                 </Link>
                 <p className="truncate text-xs text-muted-foreground">
@@ -258,16 +258,16 @@ function BySupplier() {
             <SupplierActions row={row} />
           </div>
         )}
-        emptyTitle={overdueOnly ? "No overdue bills" : "You don't owe any supplier"}
+        emptyTitle={overdueOnly ? "No overdue bills" : "You don't owe any party"}
         emptyDescription={
           overdueOnly
-            ? "Every unpaid supplier bill is still within its due date."
+            ? "Every unpaid bill is still within its due date."
             : "Record a purchase on credit and it will show here until you pay it."
         }
         emptyAction={
           overdueOnly ? (
             <Button variant="outline" onClick={() => setOverdueOnly(false)}>
-              Show all suppliers
+              Show all parties
             </Button>
           ) : (
             <Can do="purchases.draft">
@@ -294,7 +294,7 @@ function SupplierActions({ row }: { row: CreditPartyRow }) {
         </Button>
       </Can>
       <Button asChild size="sm" variant="outline" className="min-h-[44px] gap-1.5 sm:min-h-0">
-        <Link href={DETAIL_ROUTES.supplier(row.partyId)}>
+        <Link href={DETAIL_ROUTES.partyStatement(row.partyId)}>
           <FileText className="h-4 w-4" />
           Statement
         </Link>
@@ -347,7 +347,7 @@ function BillsDue() {
 
   const columns: Column<PayableRow>[] = [
     {
-      header: "Supplier",
+      header: "Party",
       cell: (row) => (
         <Link href={DETAIL_ROUTES.supplier(row.supplier.id)} className="block max-w-[12rem] truncate font-medium hover:text-primary">
           {row.supplier.name}
@@ -419,14 +419,14 @@ function BillsDue() {
             </NativeSelect>
           </div>
           <div className="grid gap-1">
-            <span className="text-[11px] text-muted-foreground">Supplier</span>
+            <span className="text-[11px] text-muted-foreground">Party</span>
             <div className="flex gap-1">
               <div className="min-w-0 flex-1 sm:w-48 sm:flex-none">
                 <EntitySelect
                   kind="supplier"
                   value={supplier?.id}
                   valueLabel={supplier?.name}
-                  placeholder="All suppliers"
+                  placeholder="All parties"
                   onChange={(id, name) => {
                     setSupplier({ id, name });
                     list.setPage(1);
@@ -438,7 +438,7 @@ function BillsDue() {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  aria-label="Clear supplier"
+                  aria-label="Clear party"
                   onClick={() => {
                     setSupplier(null);
                     list.setPage(1);
@@ -479,10 +479,10 @@ function BillsDue() {
             }
           : undefined
       }
-      emptyTitle={dueWindow === "all" ? "No unpaid supplier bills" : "No bills in this window"}
+      emptyTitle={dueWindow === "all" ? "No unpaid bills" : "No bills in this window"}
       emptyDescription={
         dueWindow === "all"
-          ? "Every supplier bill is paid. Bills bought on credit show here until you pay them."
+          ? "Every bill is paid. Bills bought on credit show here until you pay them."
           : "Try a wider window, or show all unpaid bills."
       }
       emptyAction={

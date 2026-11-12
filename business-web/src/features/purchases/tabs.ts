@@ -6,5 +6,5 @@ export const PURCHASE_TABS: ModuleTab[] = [
   { label: "Overview", href: ROUTES.purchases },
   { label: "Purchase Bills", href: ROUTES.purchaseBills },
   { label: "Purchase Returns", href: ROUTES.purchaseReturns },
-  { label: "Supplier Payables", href: ROUTES.supplierPayables },
+  { label: "Payables", href: ROUTES.supplierPayables },
 ];
