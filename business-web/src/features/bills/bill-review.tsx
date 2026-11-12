@@ -448,7 +448,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
         partyId: candidate.hasRole ? null : candidate.partyId,
         note: candidate.hasRole
           ? candidate.matchedBy === "similar-name" ? "similar name" : `same ${candidate.matchedBy}`
-          : `already your ${candidate.relationship === "CUSTOMER" ? "customer" : "supplier"}`,
+          : "already in your parties",
       });
     }
     return options;
@@ -456,7 +456,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
 
   const problems: string[] = [];
   if (!partyId && !linkParty && !partyWillBeCreated) {
-    problems.push(isPurchase ? "Choose the supplier" : "Choose the customer");
+    problems.push("Choose the party");
   }
   // Only worth asking about when there is a real choice to make.
   if (!warehouseId && !warehouseWillBeCreated && warehouseItems.length > 0) {
@@ -466,7 +466,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
     problems.push("Add a store to keep this stock in");
   }
   if (!data.invoiceDate) problems.push("Enter the bill date");
-  if (isPurchase && !data.invoiceNumber) problems.push("Enter the supplier's invoice number");
+  if (isPurchase && !data.invoiceNumber) problems.push("Enter the invoice number");
   const recordedLines = data.lines.filter(
     (line, index) =>
       lineProductIds[index] || (shouldCreateLine(index) && (line.description ?? "").trim()),
@@ -614,7 +614,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                 : "Choose from your own records."
             }
           >
-            <Field label={isPurchase ? "Supplier" : "Customer"} required>
+            <Field label="Party" required>
               <EntitySelect
                 kind={isPurchase ? "supplier" : "customer"}
                 value={partyId}
@@ -623,15 +623,14 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                   setPartyId(id);
                   setPartyLabel(label ?? null);
                 }}
-                placeholder={isPurchase ? "Choose a supplier" : "Choose a customer"}
+                placeholder="Choose a party"
               />
             </Field>
 
             {!partyId && linkParty ? (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/40 bg-primary/5 p-3 text-sm">
                 <span className="min-w-0">
-                  Using <span className="font-medium">{linkParty.name}</span>. They will also become one of your{" "}
-                  {isPurchase ? "suppliers" : "customers"} when you record this bill.
+                  Using <span className="font-medium">{linkParty.name}</span>. They will be used on this bill when you record it.
                 </span>
                 <Button type="button" variant="ghost" size="sm" onClick={() => setLinkParty(null)}>
                   Undo
@@ -663,7 +662,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                     >
                       <span className="min-w-0 font-medium">{option.name}</span>
                       <span className="shrink-0 text-xs font-normal text-muted-foreground">
-                        {option.roleId ? option.note : `${option.note} · add as ${isPurchase ? "supplier" : "customer"}`}
+                        {option.roleId ? option.note : `${option.note} · add as party`}
                       </span>
                     </Button>
                   ))}
@@ -681,7 +680,7 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                 />
                 <span className="text-sm">
                   <span className="font-medium">
-                    Add “{data.partyName}” to your {isPurchase ? "suppliers" : "customers"}
+                    Add “{data.partyName}” to your parties
                   </span>
                   <span className="mt-0.5 block text-muted-foreground">
                     Created when you record this bill, with the phone and GSTIN read from it.
