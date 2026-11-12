@@ -260,9 +260,26 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
     return sum + toAmount(line.quantity) * toAmount(line.unitPrice);
   }, 0);
 
-  const billTotal = toAmount(data.grandTotal);
-  // A rupee of rounding is not a discrepancy worth interrupting anybody for.
-  const totalsDiffer = billTotal > 0 && Math.abs(billTotal - recordedTotal) > 1;
+  // The discount that comes off the recorded lines: each line's own, plus the
+  // bill-level discount (capped at the lines it is spread over). Shown so the
+  // lines tie back to the bill, and the posted figure is no surprise.
+  const lineDiscountSum = data.lines.reduce((sum, line, index) => {
+    const included = lineProductIds[index] || (shouldCreateLine(index) && (line.description ?? "").trim());
+    return included ? sum + toAmount(line.discount) : sum;
+  }, 0);
+  const discountTotal = Math.min(lineDiscountSum + toAmount(data.totalDiscount), recordedTotal);
+  const afterDiscount = Math.max(0, recordedTotal - discountTotal);
+
+  // Check the lines against the bill's OWN before-tax figure (its subtotal, or
+  // its grand total less tax) - never the grand total, or every GST bill looks
+  // "wrong". A rupee of rounding is not worth interrupting anybody for.
+  const billBeforeTax = (() => {
+    const subtotal = toAmount(data.subtotal);
+    if (subtotal > 0) return subtotal;
+    const grand = toAmount(data.grandTotal);
+    return grand > 0 ? grand - toAmount(data.totalTax) : 0;
+  })();
+  const totalsDiffer = billBeforeTax > 0 && Math.abs(billBeforeTax - afterDiscount) > 1;
 
   const paidNow = toAmount(paidAmount);
   // No "still owing" figure here: what is due is decided by the backend when
@@ -772,6 +789,18 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
             </Field>
 
             <Field
+              label="Discount on the bill"
+              hint="A whole-bill discount read off the bill. Taken off the lines when you save, spread across them by amount."
+            >
+              <Input
+                value={data.totalDiscount ?? ""}
+                onChange={(event) => setField("totalDiscount", event.target.value || null)}
+                inputMode="decimal"
+                placeholder="0.00"
+              />
+            </Field>
+
+            <Field
               label={isPurchase ? "Paid now" : "Received now"}
               hint={
                 isPurchase
@@ -808,9 +837,21 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
                 the document. */}
             <div className="mt-1 space-y-1 rounded-lg border bg-muted/30 p-3 text-sm">
               <div className="flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">Lines add up to (before tax)</span>
-                <span className="font-medium tabular-nums">{formatRupees(recordedTotal)}</span>
+                <span className="text-muted-foreground">Lines add up to</span>
+                <span className="tabular-nums">{formatRupees(recordedTotal)}</span>
               </div>
+              {discountTotal > 0 ? (
+                <>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-muted-foreground">Discount</span>
+                    <span className="tabular-nums text-destructive">− {formatRupees(discountTotal)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4 border-t pt-1">
+                    <span className="font-medium">After discount (before tax)</span>
+                    <span className="font-medium tabular-nums">{formatRupees(afterDiscount)}</span>
+                  </div>
+                </>
+              ) : null}
               <p className="text-xs text-muted-foreground">
                 The exact total, tax and what is still {isPurchase ? "owed to them" : "owed by them"}{" "}
                 are worked out when you save, and shown on the {isPurchase ? "purchase" : "sale"}.
@@ -821,10 +862,10 @@ function ReviewForm({ bill, onDone }: { bill: Bill; onDone: () => void }) {
               <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
                 <p className="text-sm text-muted-foreground">
-                  The bill says <span className="font-medium">{formatRupees(billTotal)}</span>, but
-                  the lines below add up to{" "}
-                  <span className="font-medium">{formatRupees(recordedTotal)}</span>. A line may
-                  have been misread, or left out. Only what is below gets recorded.
+                  The bill&apos;s items come to{" "}
+                  <span className="font-medium">{formatRupees(billBeforeTax)}</span> before tax, but the
+                  lines here add up to <span className="font-medium">{formatRupees(afterDiscount)}</span>{" "}
+                  after discount. A line may have been misread, or left out. Only what is below gets recorded.
                 </p>
               </div>
             )}

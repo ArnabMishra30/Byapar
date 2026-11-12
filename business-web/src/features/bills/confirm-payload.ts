@@ -103,6 +103,54 @@ export interface BuildArgs {
 }
 
 /**
+ * The discount to record against each line, as a money string ("" for none),
+ * in the SAME order as the lines given.
+ *
+ * Worked out in paise so the parts sum back to the whole. Each line keeps any
+ * discount printed against it, plus its share of a bill-level discount spread
+ * across the lines by value - the largest line takes any rounding remainder. A
+ * line's discount is never allowed past the line's own amount. A plain bill
+ * (no discount anywhere) returns all "", so it posts exactly as before.
+ *
+ * The purchase/sale document has no bill-level discount field; it takes a
+ * per-line FIXED discount, which is why a single "Discount (₹50)" on the bill
+ * is turned into four smaller line discounts that add back to ₹50.
+ */
+function lineDiscounts(lines: ExtractedBill["lines"], totalDiscount: string | null): string[] {
+  const paise = (value: string | null | undefined): number => {
+    const n = Number(value ?? 0);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
+  };
+  const gross = lines.map((line) => {
+    const q = Number(line.quantity ?? 0);
+    const p = Number(line.unitPrice ?? 0);
+    return Number.isFinite(q) && Number.isFinite(p) && q > 0 && p > 0 ? Math.round(q * p * 100) : 0;
+  });
+  const own = lines.map((line) => paise(line.discount));
+  const bill = paise(totalDiscount);
+  const totalGross = gross.reduce((sum, g) => sum + g, 0);
+
+  const spread = new Array<number>(lines.length).fill(0);
+  if (bill > 0 && totalGross > 0) {
+    let assigned = 0;
+    for (let i = 0; i < lines.length; i += 1) {
+      spread[i] = Math.floor((bill * gross[i]) / totalGross);
+      assigned += spread[i];
+    }
+    // The paise left over by flooring go to the biggest line, so the shares
+    // add back to the bill-level discount exactly.
+    let biggest = 0;
+    for (let i = 1; i < lines.length; i += 1) if (gross[i] > gross[biggest]) biggest = i;
+    spread[biggest] += bill - assigned;
+  }
+
+  return lines.map((_, i) => {
+    const value = Math.min(own[i] + spread[i], gross[i]);
+    return value > 0 ? (value / 100).toFixed(2) : "";
+  });
+}
+
+/**
  * The document, plus anything that has to be created before it can be posted.
  *
  * A line is recorded when it is either matched to a product or ticked to be
@@ -130,10 +178,18 @@ export function buildConfirmPayload({
       return Boolean(createLine[lineIndex] && (line.description ?? "").trim());
     });
 
-  const items = included.map(({ line, lineIndex }) => ({
+  // Each recorded line's discount: its own, plus a share of any bill-level
+  // discount, spread across the recorded lines. "" when the bill has none.
+  const discountValues = lineDiscounts(
+    included.map(({ line }) => line),
+    data.totalDiscount,
+  );
+
+  const items = included.map(({ line, lineIndex }, i) => ({
     ...(lineProductIds[lineIndex] ? { productId: lineProductIds[lineIndex] } : {}),
     quantity: line.quantity ?? "0",
     ...(isPurchase ? { unitCost: line.unitPrice ?? "0" } : { unitPrice: line.unitPrice ?? "0" }),
+    ...(discountValues[i] ? { discountType: "FIXED", discountValue: discountValues[i] } : {}),
     ...(lineLocationIds[lineIndex] ? { storageLocationId: lineLocationIds[lineIndex] } : {}),
   }));
 

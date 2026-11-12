@@ -59,6 +59,64 @@ describe("buildConfirmPayload", () => {
     expect(payload.document.supplierId).toBe("supplier-1");
   });
 
+  it("adds no discount to a bill that has none", () => {
+    const payload = buildConfirmPayload({
+      data: bill({
+        lines: [{ ...emptyLine, description: "Rice 5kg", quantity: "2", unitPrice: "420" }],
+      }),
+      direction: "IN",
+      partyId: "supplier-1",
+      warehouseId: "wh-1",
+      lineProductIds: ["p1"],
+      createLine: [false],
+      createParty: false,
+    });
+    expect(payload.document.items).toEqual([{ productId: "p1", quantity: "2", unitCost: "420" }]);
+  });
+
+  it("keeps a discount printed against a single line", () => {
+    const payload = buildConfirmPayload({
+      data: bill({
+        lines: [{ ...emptyLine, description: "Rice 5kg", quantity: "2", unitPrice: "420", discount: "40" }],
+      }),
+      direction: "IN",
+      partyId: "supplier-1",
+      warehouseId: "wh-1",
+      lineProductIds: ["p1"],
+      createLine: [false],
+      createParty: false,
+    });
+    expect(payload.document.items).toEqual([
+      { productId: "p1", quantity: "2", unitCost: "420", discountType: "FIXED", discountValue: "40.00" },
+    ]);
+  });
+
+  it("spreads a bill-level discount across the recorded lines, to the paisa", () => {
+    const payload = buildConfirmPayload({
+      data: bill({
+        totalDiscount: "50",
+        lines: [
+          { ...emptyLine, description: "Sunflower Oil 1L", quantity: "5", unitPrice: "140" },
+          { ...emptyLine, description: "Dove Soap 100g", quantity: "4", unitPrice: "55" },
+          { ...emptyLine, description: "Maggi Noodles 70g", quantity: "10", unitPrice: "14" },
+          { ...emptyLine, description: "Coca-Cola 750ml", quantity: "2", unitPrice: "45" },
+        ],
+      }),
+      direction: "IN",
+      partyId: "supplier-1",
+      warehouseId: "wh-1",
+      lineProductIds: ["p1", "p2", "p3", "p4"],
+      createLine: [false, false, false, false],
+      createParty: false,
+    });
+    const items = payload.document.items as Array<{ discountType?: string; discountValue?: string }>;
+    // 50 spread by value over 700/220/140/90; the biggest line takes the rounding paise.
+    expect(items.map((i) => i.discountValue)).toEqual(["30.45", "9.56", "6.08", "3.91"]);
+    expect(items.every((i) => i.discountType === "FIXED")).toBe(true);
+    const total = items.reduce((sum, i) => sum + Number(i.discountValue), 0);
+    expect(total).toBeCloseTo(50, 2);
+  });
+
   it("points each new product at its own item, even when earlier lines are skipped", () => {
     const payload = buildConfirmPayload({
       data: bill({
