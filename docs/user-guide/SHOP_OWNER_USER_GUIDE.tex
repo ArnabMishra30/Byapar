@@ -1,0 +1,840 @@
+% =====================================================================
+%  Byapar — Complete Shop Owner User Guide
+%  Compile with XeLaTeX (preferred) or LuaLaTeX.  See README.md.
+%  Uses only standard TeX Live / Overleaf packages so it builds anywhere.
+% =====================================================================
+\documentclass[11pt,a4paper,openany]{report}
+
+\usepackage{fontspec}                 % XeLaTeX / LuaLaTeX
+\usepackage[a4paper,top=2.5cm,bottom=2.4cm,left=2.2cm,right=2.2cm,headheight=16pt]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage[most]{tcolorbox}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{calc,arrows.meta}
+\usepackage[hidelinks]{hyperref}
+\usepackage{bookmark}
+
+% ---------- Brand palette (from the real app: --primary hsl(158,64%,30%)) ----------
+\definecolor{brandgreen}{HTML}{1C7D59}
+\definecolor{brandgreendark}{HTML}{145C41}
+\definecolor{navy}{HTML}{13293D}
+\definecolor{panel}{HTML}{F2F6F4}
+\definecolor{panelborder}{HTML}{D4E3DB}
+\definecolor{amber}{HTML}{B45309}
+\definecolor{amberbg}{HTML}{FDF4E3}
+\definecolor{redink}{HTML}{B3261E}
+\definecolor{redbg}{HTML}{FCEDEC}
+\definecolor{inkgray}{HTML}{4B5563}
+\definecolor{hairline}{HTML}{E3E8E6}
+
+% ---------- Fonts: keep the default Latin Modern so it always compiles.
+%            A dedicated font only for the Rupee glyph (DejaVu ships with TeX Live). ----------
+\newfontfamily\rupeefont{DejaVu Sans}
+\newcommand{\rupee}{{\rupeefont \symbol{"20B9}}}  % ₹
+
+\hypersetup{
+  pdftitle={Byapar — Complete Shop Owner User Guide},
+  pdfauthor={Byapar},
+  colorlinks=true, linkcolor=brandgreendark, urlcolor=brandgreendark,
+  bookmarksnumbered=true, bookmarksopen=true,
+}
+
+% ---------- Headings ----------
+\titleformat{\chapter}[display]
+  {\sffamily\bfseries\color{navy}}
+  {\raggedright\color{brandgreen}\large CHAPTER \thechapter}
+  {6pt}
+  {\Huge\raggedright}
+\titlespacing*{\chapter}{0pt}{6pt}{18pt}
+
+\titleformat{\section}
+  {\sffamily\bfseries\large\color{navy}}{\thesection}{0.6em}{}
+\titleformat{\subsection}
+  {\sffamily\bfseries\normalsize\color{brandgreendark}}{\thesubsection}{0.6em}{}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+
+% ---------- Header / footer ----------
+\newcommand{\wordmark}{%
+  \begin{tikzpicture}[baseline=-0.55ex]
+    \fill[brandgreen,rounded corners=2.2pt] (0,-0.9ex) rectangle (2.3ex,1.5ex);
+    \draw[white,line width=0.5pt] (0.45ex,0.1ex) -- (0.45ex,1.0ex) -- (1.15ex,1.55ex) -- (1.85ex,1.0ex) -- (1.85ex,0.1ex) -- cycle;
+    \node[anchor=west] at (2.7ex,0.3ex) {\sffamily\bfseries\color{navy}Byapar};
+  \end{tikzpicture}%
+}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\wordmark}
+\fancyhead[R]{\sffamily\footnotesize\color{inkgray}Shop Owner User Guide}
+\fancyfoot[C]{\sffamily\footnotesize\color{inkgray}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{hairline}\leaders\hrule height \headrulewidth\hfill}}
+\fancypagestyle{plain}{\fancyhf{}\fancyfoot[C]{\sffamily\footnotesize\color{inkgray}\thepage}\renewcommand{\headrulewidth}{0pt}}
+
+% ---------- Callout boxes ----------
+\newtcolorbox{notebox}{enhanced,breakable,colback=panel,colframe=brandgreen,
+  boxrule=0pt,leftrule=3pt,arc=3pt,left=10pt,right=10pt,top=8pt,bottom=8pt,
+  fonttitle=\sffamily\bfseries\color{brandgreendark},title={Good to know}}
+\newtcolorbox{tipbox}{enhanced,breakable,colback=panel,colframe=brandgreendark,
+  boxrule=0pt,leftrule=3pt,arc=3pt,left=10pt,right=10pt,top=8pt,bottom=8pt,
+  fonttitle=\sffamily\bfseries\color{brandgreendark},title={Tip}}
+\newtcolorbox{warnbox}{enhanced,breakable,colback=amberbg,colframe=amber,
+  boxrule=0pt,leftrule=3pt,arc=3pt,left=10pt,right=10pt,top=8pt,bottom=8pt,
+  fonttitle=\sffamily\bfseries\color{amber},title={Important}}
+\newtcolorbox{examplebox}{enhanced,breakable,colback=white,colframe=panelborder,
+  boxrule=0.8pt,arc=3pt,left=10pt,right=10pt,top=8pt,bottom=8pt,
+  fonttitle=\sffamily\bfseries\color{navy},title={Worked example}}
+\newtcolorbox{faqbox}[1]{enhanced,breakable,colback=panel,colframe=panelborder,
+  boxrule=0.8pt,arc=3pt,left=10pt,right=10pt,top=7pt,bottom=8pt,
+  fonttitle=\sffamily\bfseries\color{navy},title={#1}}
+
+% Steps list
+\newlist{steps}{enumerate}{1}
+\setlist[steps]{leftmargin=2.1em,label=\protect\stepnum{\arabic*},itemsep=5pt,topsep=4pt}
+\newcommand{\stepnum}[1]{\raisebox{-1.5pt}{\colorbox{brandgreen}{\makebox[1.35em][c]{\sffamily\bfseries\footnotesize\textcolor{white}{#1}}}}}
+
+% A soft "what you'll see" chip
+\newcommand{\ui}[1]{\colorbox{panel}{\rule[-3pt]{0pt}{11pt}\texttt{\textcolor{navy}{#1}}}}
+
+% Screenshot: uses the real image if present in screenshots/, else a tidy placeholder.
+\newcommand{\shot}[3]{% {number}{filename}{caption}
+  \begin{center}
+  \IfFileExists{screenshots/#2}{%
+    \fcolorbox{hairline}{white}{\includegraphics[width=0.93\linewidth]{screenshots/#2}}%
+  }{%
+    \begin{tcolorbox}[width=0.93\linewidth,colback=panel,colframe=panelborder,
+       boxrule=0.8pt,arc=4pt,sharp corners=south,halign=center,valign=center,height=4.6cm,
+       enhanced,borderline={0.8pt}{0pt}{panelborder,dashed}]
+       {\sffamily\bfseries\color{navy}Screenshot to add}\\[3pt]
+       {\sffamily\footnotesize\color{inkgray}place \texttt{screenshots/#2} here}
+    \end{tcolorbox}%
+  }\\[3pt]
+  {\sffamily\footnotesize\color{inkgray}\textbf{Figure #1.}~#3}
+  \end{center}
+}
+
+\begin{document}
+\sffamily\color{black}
+
+% =====================================================================
+%  COVER
+% =====================================================================
+\begin{titlepage}
+\thispagestyle{empty}
+\begin{tikzpicture}[remember picture,overlay]
+  \fill[brandgreen] (current page.north west) rectangle ($(current page.north east)+(0,-6.2cm)$);
+  \fill[brandgreendark] ($(current page.north west)+(0,-6.2cm)$) rectangle ($(current page.north east)+(0,-6.6cm)$);
+  % wordmark on the band
+  \node[anchor=north west] at ($(current page.north west)+(2.2cm,-1.6cm)$)
+    {\begin{tikzpicture}
+       \fill[white,rounded corners=4pt] (0,0) rectangle (1.0,1.0);
+       \draw[brandgreen,line width=1.1pt] (0.2,0.18) -- (0.2,0.62) -- (0.5,0.86) -- (0.8,0.62) -- (0.8,0.18) -- cycle;
+       \node[anchor=west,white] at (1.25,0.5) {\sffamily\bfseries\Huge Byapar};
+     \end{tikzpicture}};
+  \node[anchor=west,white] at ($(current page.north west)+(2.25cm,-3.3cm)$)
+    {\sffamily\large Business \& Shop Management};
+\end{tikzpicture}
+
+\vspace*{7.4cm}
+{\sffamily\bfseries\color{navy}\fontsize{27}{31}\selectfont Complete Shop Owner\\[2pt] User Guide}\\[10pt]
+{\sffamily\color{brandgreendark}\Large Manage Your Business with Byapar}\\[18pt]
+{\sffamily\color{inkgray}\large Your step-by-step handbook for billing, purchases,\\
+inventory, payments, parties, and business reports.}
+
+\vfill
+\begin{tcolorbox}[colback=panel,colframe=panelborder,boxrule=0.8pt,arc=4pt,left=14pt,right=14pt,top=10pt,bottom=10pt]
+{\sffamily\bfseries\color{navy}Who this guide is for}\\[2pt]
+{\color{inkgray}Kirana and grocery shops, retail counters, wholesale traders and small
+distributors — and the staff who do the billing. No accounting background needed.}
+\end{tcolorbox}
+\vspace{6pt}
+{\sffamily\footnotesize\color{inkgray}Document version 1.0\hfill Covers the Byapar shop application}
+\end{titlepage}
+
+% =====================================================================
+%  CONTENTS
+% =====================================================================
+\pagenumbering{roman}
+{\sffamily\bfseries\color{navy}\Huge Contents}\par\vspace{10pt}
+{\color{brandgreen}\rule{\linewidth}{1.2pt}}\par\vspace{4pt}
+\makeatletter
+\@starttoc{toc}
+\makeatother
+\clearpage
+\pagenumbering{arabic}
+
+% =====================================================================
+\chapter{Welcome to Byapar}
+% =====================================================================
+Byapar is one simple place to run the money side of your shop. Instead of paper
+bills in a drawer, a stock register in one notebook and a ``who owes me'' list in
+another, everything lives together and stays in agreement.
+
+\section{What Byapar does for you}
+With Byapar you can:
+\begin{itemize}[leftmargin=1.3em,itemsep=2pt]
+  \item Make bills for customers in seconds, and print or share them.
+  \item Record what you buy from suppliers.
+  \item Know your stock at any moment — what you have, and what is running low.
+  \item Keep a single list of \textbf{parties} (the people and businesses you deal with).
+  \item Track money in and money out, and who still owes whom.
+  \item See clear reports of how the shop is doing — on screen, or as PDF and Excel.
+  \item Scan a photo of a paper bill and let Byapar read it for you.
+\end{itemize}
+
+\section{The problems it solves}
+\begin{itemize}[leftmargin=1.3em,itemsep=2pt]
+  \item \textbf{Scattered paper bills} — every sale and purchase is saved and searchable.
+  \item \textbf{Manual stock registers} — stock moves by itself as you bill and buy.
+  \item \textbf{``Udhaar'' notebooks} — each party's balance is kept for you, always current.
+  \item \textbf{Month-end guessing} — reports show sales, profit and dues at a glance.
+\end{itemize}
+
+\section{How it all works together}
+The modules are not separate silos. One action updates everything it should:
+
+\begin{center}
+\begin{tikzpicture}[font=\sffamily\footnotesize,node distance=6mm,
+   box/.style={draw=panelborder,fill=panel,rounded corners=3pt,inner sep=5pt,minimum width=2.6cm,align=center},
+   gbox/.style={draw=brandgreen,fill=white,rounded corners=3pt,inner sep=5pt,minimum width=2.6cm,align=center,text=navy},
+   arr/.style={-{Latex[length=2mm]},brandgreen,thick}]
+  \node[gbox](sale){\textbf{Sale}};
+  \node[box,right=1.4cm of sale](stockd){Stock goes\\\textbf{down}};
+  \node[box,below=7mm of stockd](recv){Customer\\\textbf{owes you}};
+  \node[gbox,below=1.4cm of sale](purch){\textbf{Purchase}};
+  \node[box,right=1.4cm of purch](stocku){Stock goes\\\textbf{up}};
+  \node[box,below=7mm of stocku](pay){You\\\textbf{owe supplier}};
+  \draw[arr](sale)--(stockd);
+  \draw[arr](sale)|-(recv);
+  \draw[arr](purch)--(stocku);
+  \draw[arr](purch)|-(pay);
+  \node[box,right=1.4cm of stockd,yshift=-7mm,minimum width=2.9cm](rep){\textbf{Reports}\\read all of it};
+  \draw[arr](recv)-|(rep);
+  \draw[arr](pay)-|(rep);
+\end{tikzpicture}
+\end{center}
+
+\begin{notebox}
+You never do this maths by hand. You record the sale or purchase; Byapar updates
+stock, the party's balance and the reports for you.
+\end{notebox}
+
+\section{Why small shops like it}
+It is built for a busy counter: big buttons, works on a phone, keeps the exact
+rupee figures so there are no end-of-day surprises, and speaks in plain words
+rather than accounting jargon.
+
+% =====================================================================
+\chapter{Logging In and the Dashboard}
+% =====================================================================
+\section{Signing in}
+Open the web address your business was given and you will see the \textbf{Byapar}
+sign-in screen.
+\begin{steps}
+  \item Enter the \textbf{email} your business set up for you.
+  \item Enter your \textbf{password}.
+  \item Press \ui{Sign in}.
+\end{steps}
+\shot{1}{01-login.png}{The Byapar sign-in screen. Use the email and password your business gave you.}
+
+\begin{warnbox}
+Use the account your business created for you. The shop owner account can do
+everything; a staff (cashier) account may be limited to billing. If you see
+``Cannot reach the server'', check your internet and try again.
+\end{warnbox}
+
+\section{The dashboard (Home)}
+After signing in you land on \textbf{Home}. It shows the day at a glance — recent
+sales, money due, and shortcuts to the things you do most.
+\shot{2}{02-dashboard.png}{The Home dashboard: your day at a glance.}
+
+\section{Finding your way around}
+On the left is the \textbf{sidebar}, grouped so related tasks sit together:
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\bfseries\color{navy}}l X}
+\toprule
+Overview & Home, Quick Billing, Bill Import \\
+Sales & Sales, Invoices, Sales Returns \\
+Purchase & Purchases, Purchase Bills, Purchase Returns, Payables \\
+Stock \& Inventory & Stock Dashboard, Products / Items, Stock In, Stock Out, Stock Adjustments, Low Stock, Offers \\
+Parties & All Parties, Add Party, Credit Book \\
+Money & Money Received, Money Paid, Expenses, Cash \& Bank \\
+Reports & Sales, Purchases, Stock, Parties, Expenses, Profit \& Loss, Billers' Day (and GST, if you use GST) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+\shot{3}{03-sidebar.png}{The sidebar, grouped by the work you do.}
+
+\begin{tipbox}
+Press \ui{Ctrl\,+\,K} (or \ui{Cmd\,+\,K} on a Mac) anywhere to open the command
+menu and jump straight to a page or action.
+\end{tipbox}
+
+\section{Profile and signing out}
+Your name sits at the top right. Open it to see your profile or to \textbf{sign out}.
+
+\section{What to check every morning}
+\begin{itemize}[leftmargin=1.3em,itemsep=2pt]
+  \item Yesterday's sales on the dashboard.
+  \item \textbf{Low Stock} — what to re-order.
+  \item \textbf{Parties} report / Credit Book — who still owes you.
+\end{itemize}
+
+% =====================================================================
+\chapter{First-Time Setup}
+% =====================================================================
+Do these once, in this order, and daily billing becomes effortless. A new shop
+already comes with sensible defaults, so some steps may only need a quick check.
+
+\begin{steps}
+  \item \textbf{Business profile \& settings} — open \textbf{Settings} and check your shop name, address and phone.
+  \item \textbf{Tax (GST)} — turn GST on only if your shop is GST-registered. If you are not, leave it off and your bills stay simple, with no tax added.
+  \item \textbf{Categories} — group your products (e.g.\ Grocery, Personal Care, Cold Drinks).
+  \item \textbf{Units} — the units you sell in (piece, kg, litre, packet).
+  \item \textbf{Products} — add the items you sell (see Chapter 4).
+  \item \textbf{Store} — most shops have one store, and Byapar uses it automatically. Add more only if you keep separate godowns.
+  \item \textbf{Opening stock} — enter what you already have on the shelf (see Chapter 4).
+  \item \textbf{Parties} — add the customers and suppliers you deal with (see Chapter 5).
+  \item \textbf{Opening balances} — if a party already owes you (or you owe them), record that starting amount.
+  \item \textbf{Start billing} — you are ready.
+\end{steps}
+
+\begin{notebox}
+You do not have to finish setup before you start. Add a product or a party the
+moment you need it, right from the billing screen.
+\end{notebox}
+
+% =====================================================================
+\chapter{Products and Inventory}
+% =====================================================================
+``Stock'' simply means how much of each product you have in the shop right now.
+Byapar keeps this count for you.
+
+\section{Adding a product}
+Open \textbf{Stock \& Inventory $\rightarrow$ Products / Items} and choose
+\ui{Add product}. The fields are:
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\bfseries\color{navy}}l X}
+\toprule
+Name & What you call the item, e.g.\ \emph{Sunflower Oil 1L}. \\
+Item code / SKU & A short code for the item (optional). \\
+Barcode & The barcode number printed on the pack, if any (optional). \\
+Category & The group it belongs to. \\
+Unit & How you sell it — piece, kg, litre\ldots \\
+GST \& HSN/SAC & Only shown if you use GST: the tax rate and tax code. \\
+Purchase price & What you normally pay for it. \\
+Selling price & What you normally sell it for. \\
+Minimum stock level & When stock falls to this, it appears in \textbf{Low Stock}. \\
+Description & Any extra note (optional). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+\shot{4}{04-add-product.png}{Adding a product with its purchase and selling price.}
+
+\begin{notebox}
+The \textbf{selling price} you set here fills in automatically when you add the
+item to a bill, so you do not have to remember the rate every time. You can still
+change it on any bill.
+\end{notebox}
+
+\section{Combo products}
+A \textbf{combo} is one item on the bill made of several products (for example a
+``Diwali Pack''). When you sell the combo, each product inside it leaves stock on
+its own. A combo cannot itself be purchased or counted — only its contents are.
+
+\section{Opening stock}
+To tell Byapar what you already have, record it as a \textbf{purchase} (or a
+\textbf{Stock In}) at the price it cost you. From then on, stock moves by itself.
+
+\section{Seeing and moving stock}
+\begin{itemize}[leftmargin=1.3em,itemsep=2pt]
+  \item \textbf{Stock Dashboard} — the live count and value of everything.
+  \item \textbf{Stock In / Stock Out} — add or remove stock directly.
+  \item \textbf{Stock Adjustments} — fix a count after breakage, loss or a physical check.
+  \item \textbf{Low Stock} — items at or below their minimum level, to re-order.
+\end{itemize}
+\shot{5}{05-stock-dashboard.png}{The Stock Dashboard: what you hold and what it is worth.}
+
+\begin{examplebox}
+\textbf{Sunflower Oil 1L} — purchase price \rupee115, selling price \rupee140,
+opening stock \textbf{50}.
+\begin{itemize}[leftmargin=1.3em,itemsep=1pt]
+  \item You \textbf{buy 20} more from a supplier $\rightarrow$ stock becomes \textbf{70}.
+  \item You \textbf{sell 5} to a customer $\rightarrow$ stock becomes \textbf{65}.
+\end{itemize}
+You never change the number by hand — recording the purchase and the sale does it.
+\end{examplebox}
+
+\begin{warnbox}
+\textbf{Stock transfers} between two stores are not part of the app today. If you
+keep more than one godown, move stock with Stock In / Stock Out at each store.
+\end{warnbox}
+
+% =====================================================================
+\chapter{Unified Parties}
+% =====================================================================
+This is one of the most important ideas in Byapar, and it makes life simpler.
+
+\section{What a ``party'' is}
+A \textbf{party} is any person or business you deal with — a customer, a supplier,
+or someone who is \emph{both}. There are no separate ``customer'' and ``supplier''
+lists to keep in step. There is \textbf{one party}, and Byapar remembers both
+sides of your dealings with them.
+
+\section{Adding and opening a party}
+Open \textbf{Parties $\rightarrow$ Add Party}, enter the name (phone and the
+rest are optional), and save. Open any party from \textbf{All Parties} to see their
+profile, balances and full history.
+\shot{6}{06-add-party.png}{Adding a party — one record for a customer, a supplier, or both.}
+\shot{7}{07-party-list.png}{All Parties: everyone you deal with, with what they owe you and what you owe them.}
+
+\section{Two balances, kept apart}
+A party can owe you money \emph{and} you can owe them money at the same time.
+Byapar keeps these two figures \textbf{separate} and never quietly cancels one
+against the other — because the two debts are real and settled separately.
+
+\begin{examplebox}
+\textbf{XYZ Traders} — you deal with them both ways:
+\begin{center}
+\small
+\begin{tabular}{@{}l r@{}}
+You sell them goods & \rupee8,000 \\
+They pay you & $-$\,\rupee2,000 \\
+\textbf{Owes You} & \textbf{\rupee6,000} \\[4pt]
+You buy goods from them & \rupee20,000 \\
+You pay them & $-$\,\rupee5,000 \\
+\textbf{You Owe} & \textbf{\rupee15,000} \\
+\end{tabular}
+\end{center}
+Both numbers stand on their own: \textbf{Owes You \rupee6,000} and
+\textbf{You Owe \rupee15,000}. Byapar does not net them to ``\rupee9,000''.
+\end{examplebox}
+
+\section{The party statement}
+Every party has a full \textbf{statement} — one running account of sales,
+purchases, receipts and payments, with separate running ``owes you'' and ``you
+owe'' totals. You can download it as PDF or Excel (see Chapter 13).
+
+% =====================================================================
+\chapter{Quick Billing}
+% =====================================================================
+Quick Billing is the fastest way to make a sale at the counter. Open
+\textbf{Overview $\rightarrow$ Quick Billing}.
+
+\section{Step by step}
+\begin{steps}
+  \item \textbf{Choose the party} (the customer). New face? Tap \ui{New party? Add them first} and add them in seconds.
+  \item \textbf{Add items.} Pick a product; its \textbf{price fills in automatically} from the selling price. Set the \textbf{quantity}. Add as many items as you like.
+  \item Change the \textbf{rate} or add a \textbf{discount} on any line if needed. (To give an item free, tick the free option — the stock still goes out.)
+  \item Choose how it is paid: \ui{Full} (paid now), \ui{Part} (some now, rest on credit) or \ui{On credit} (pay later), and the account the money goes \ui{Into}.
+  \item Press \ui{Save \& complete} to finish the bill, or \ui{Save draft} to keep it for later.
+\end{steps}
+\shot{8}{08-quick-billing.png}{Quick Billing: choose the party, add items, take payment, complete.}
+
+\begin{notebox}
+The \textbf{total, tax and change} are worked out by Byapar when you save, and
+shown on the finished invoice straight after — so the figure is always exact.
+\end{notebox}
+
+\begin{examplebox}
+\textbf{Rahul Store} buys:
+\begin{center}
+\small
+\begin{tabular}{@{}l r r r@{}}
+\toprule
+Item & Qty & Rate & Amount \\
+\midrule
+Sunflower Oil 1L & 2 & \rupee140 & \rupee280 \\
+Dove Soap 100g   & 3 & \rupee55  & \rupee165 \\
+Maggi Noodles 70g& 5 & \rupee14  & \rupee70  \\
+\midrule
+\multicolumn{3}{r}{\textbf{Items total}} & \textbf{\rupee515} \\
+\bottomrule
+\end{tabular}
+\end{center}
+If your shop does \textbf{not} use GST, the bill total is \textbf{\rupee515}.
+If you \textbf{do} use GST, Byapar adds the tax on top when you save. Either way,
+the final figure appears on the invoice.
+\end{examplebox}
+
+\section{What happens when the sale completes}
+When you press \ui{Save \& complete}: the stock of each item \textbf{goes down},
+the \textbf{invoice} is created, any amount not paid becomes what the customer
+\textbf{owes you}, and the money paid is recorded into your chosen account.
+
+% =====================================================================
+\chapter{Sales and Invoices}
+% =====================================================================
+\section{Making a sale the full way}
+Beyond Quick Billing, \textbf{Sales $\rightarrow$ New sale} gives you the full
+form (dates, payment terms, per-line discounts). A sale is first saved as a
+\textbf{draft} — nothing moves yet.
+\begin{steps}
+  \item Pick the \textbf{party}, store and date.
+  \item Add items — the \textbf{price fills in} from each product; set quantity and any discount. A live \textbf{``lines add up to''} figure shows as you type.
+  \item Press \ui{Save draft} to keep it, or \ui{Save \& complete} to post it now (owner).
+\end{steps}
+\shot{9}{09-new-sale.png}{New sale: a running total shows as you add items; one button saves, one completes.}
+
+\begin{notebox}
+\textbf{Draft vs completed.} A draft changes nothing and can be edited or deleted.
+\textbf{Completing} (posting) a sale moves the stock and the money, and the invoice
+becomes final. To change a completed invoice, use a \textbf{sales return}.
+\end{notebox}
+
+\section{Invoices}
+\textbf{Sales $\rightarrow$ Invoices} lists every completed sale with its
+\textbf{payment status} and \textbf{outstanding} amount. Open any invoice to view,
+\textbf{print} or \textbf{download} it.
+
+\section{Sales returns}
+When a customer returns goods, record a \textbf{sales return}. The returned items
+come \textbf{back into stock} and the customer's balance is reduced accordingly.
+
+% =====================================================================
+\chapter{Purchases and Purchase Bills}
+% =====================================================================
+\section{Recording a purchase}
+Open \textbf{Purchase $\rightarrow$ Purchases $\rightarrow$ New purchase}.
+\begin{steps}
+  \item Choose the \textbf{party} (the supplier) and enter the \textbf{supplier's bill number} and date.
+  \item Add items with their \textbf{purchase rate}, quantity and any discount.
+  \item Choose what you paid now (or leave it for credit).
+  \item \ui{Save draft}, or \ui{Save \& complete} to record it (owner).
+\end{steps}
+\shot{10}{10-new-purchase.png}{New purchase: add items at their purchase rate and record what you paid.}
+
+\section{What a completed purchase does}
+It \textbf{adds the items into stock} (at their cost), and any amount you did not
+pay becomes what \textbf{you owe} that supplier. Your average cost per item is kept
+up to date automatically.
+
+\section{Purchase bills, returns and payables}
+\begin{itemize}[leftmargin=1.3em,itemsep=2pt]
+  \item \textbf{Purchase Bills} — the list of everything you have bought, with paid and due amounts.
+  \item \textbf{Purchase Returns} — goods sent back to a supplier; stock goes down and your due to them is reduced.
+  \item \textbf{Payables} — how much you owe each party, and \emph{which bills are due} (see Chapter 10).
+\end{itemize}
+
+% =====================================================================
+\chapter{Money Received and Money Paid}
+% =====================================================================
+These two screens record cash and bank movements with your parties. They are kept
+separate because one is money coming \textbf{in} and the other money going
+\textbf{out}.
+
+\section{Money Received (from customers)}
+Open \textbf{Money $\rightarrow$ Money Received} and \ui{Record money received}.
+\begin{steps}
+  \item Choose the \textbf{party}.
+  \item Enter the \textbf{amount} received. Byapar \textbf{applies it to their open bills automatically}, oldest first — you type the figure once.
+  \item Choose \textbf{how} it was paid (Cash, UPI, Bank, Cheque) and the account it goes \textbf{into}.
+  \item Add a \textbf{reference} or \textbf{note} if you wish.
+  \item Press \ui{Record payment} to post it, or \ui{Save draft}.
+\end{steps}
+\shot{11}{11-money-received.png}{Money Received: the amount fills the open bills on its own; anything extra is kept as an advance.}
+
+\begin{notebox}
+Anything left over after the open bills are covered is kept as an \textbf{advance}
+for that party, and used against their next bill. You can also split the amount
+across bills by hand if you prefer.
+\end{notebox}
+
+\section{Money Paid (to suppliers)}
+\textbf{Money $\rightarrow$ Money Paid} works the same way, for money you pay
+a supplier. Choose the party, enter the amount (it fills their open bills), pick
+the method and account, and \ui{Record payment}.
+
+\begin{examplebox}
+A customer owes \rupee235 on one invoice. You receive \rupee235 and press
+\ui{Record payment}: the invoice is marked paid and the customer's ``owes you''
+drops to \rupee0. Receive \rupee300 instead, and \rupee235 settles the invoice
+while \rupee65 is kept as an advance.
+\end{examplebox}
+
+% =====================================================================
+\chapter{Credit Book and Payables}
+% =====================================================================
+\section{The Credit Book}
+\textbf{Parties $\rightarrow$ Credit Book} is your ``udhaar'' register, done
+for you. It shows who has an open balance so you can follow up — clearly split
+between \textbf{receivable} (money customers owe you) and \textbf{payable} (money
+you owe suppliers).
+
+\begin{notebox}
+\textbf{Receivable} = money a customer still has to pay \emph{you}.\\
+\textbf{Payable} = money you still have to pay a \emph{supplier}.
+\end{notebox}
+
+\section{Payables}
+\textbf{Purchase $\rightarrow$ Payables} is the matching view for money you
+owe: how much you owe each party, which \textbf{bills are due}, the oldest bill,
+and a \ui{Pay} button to settle it.
+\shot{12}{12-credit-book.png}{Credit Book / Payables: who owes whom, and what is due.}
+
+% =====================================================================
+\chapter{AI Bill Import}
+% =====================================================================
+\textbf{Overview $\rightarrow$ Bill Import} lets you photograph a bill and have
+Byapar read it, so you do not have to type it in.
+
+\section{How it works}
+\begin{steps}
+  \item Press \ui{Upload a bill} and take a photo, or choose a PDF. Printed and neat handwritten bills both work.
+  \item Byapar \textbf{reads} the bill — the party, the items, quantities, rates, discount and totals.
+  \item \textbf{Check what was read} on the review screen. Fix anything misread, match each line to one of your products, and pick the supplier (or customer).
+  \item Press \textbf{confirm} to save it as a \textbf{purchase} (a bill you bought) or a \textbf{sale}.
+\end{steps}
+\shot{13}{13-bill-import.png}{Bill Import: upload a bill, review what was read, then confirm.}
+
+\begin{warnbox}
+\textbf{Always check before you confirm.} The reader is very good, but it can
+misread a handwritten figure. Nothing is saved until you press confirm — so review
+the party, the items and the totals first. Byapar also \textbf{warns you} if a bill
+looks like one you have already recorded, so you do not enter it twice.
+\end{warnbox}
+
+\begin{notebox}
+\textbf{Discounts are read too.} If the bill has a discount, Byapar shows it in a
+\textbf{Discount on the bill} box and spreads it across the items when you save,
+so the recorded total matches the bill. A bill with no discount is unaffected.
+\end{notebox}
+
+\begin{warnbox}
+If you see ``Automatic bill reading is not set up on this server'', the reading
+service has not been switched on for your shop yet. You can still upload bills to
+keep the photo on file, and enter them with the normal Purchase and Sales forms in
+the meantime.
+\end{warnbox}
+
+% =====================================================================
+\chapter{Expenses, Cash and Bank}
+% =====================================================================
+\section{Recording an expense}
+\textbf{Money $\rightarrow$ Expenses} is for money the shop spends that is
+\emph{not} a payment to a supplier — rent, electricity, tea, transport. Choose the
+category, enter the amount, and the account it was paid from.
+
+\begin{notebox}
+\textbf{Expense vs supplier payment.} Paying your \emph{supplier} for goods is
+\textbf{Money Paid} (it reduces what you owe them). Paying \emph{rent} or the
+\emph{electricity bill} is an \textbf{Expense}. Keeping them apart keeps your
+profit figure honest.
+\end{notebox}
+
+\section{Cash \& Bank}
+\textbf{Money $\rightarrow$ Cash \& Bank} shows the balance of your cash box and
+bank/UPI accounts, and lets you move money between them. Every receipt, payment
+and expense updates these balances.
+
+% =====================================================================
+\chapter{Reports and Business Performance}
+% =====================================================================
+Open \textbf{Reports} and use the tabs across the top: \textbf{Sales},
+\textbf{Purchases}, \textbf{Stock}, \textbf{Parties}, \textbf{Expenses},
+\textbf{Profit \& Loss} (and \textbf{GST}, if you use GST). Most reports let you
+pick a \textbf{date range} and \ui{Print}, \ui{Download} or \ui{Share}.
+
+\section{What each report tells you}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\bfseries\color{navy}}l X}
+\toprule
+Sales & What you sold, over any period; returns and net sales. \\
+Purchases & What you bought, what you paid, what you still owe. \\
+Stock & What you hold now and what it is worth; and \textbf{Low Stock}. \\
+Parties & \textbf{One} report: every party with \emph{Owes you}, \emph{You owe} and \emph{Net}. \\
+Expenses & Your spending, by category and period. \\
+Profit \& Loss & Whether the shop is making money over the period. \\
+GST & Your tax summary (only if GST is on). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+\shot{14}{14-reports.png}{Reports: pick a tab and a date range, then read, print or download.}
+
+\section{The Party report}
+Because a party can be both a customer and a supplier, the Parties report puts
+them in \textbf{one list}: what each \textbf{owes you}, what \textbf{you owe} them,
+and the \textbf{net}. From each row you can jump straight to \ui{Receive} or
+\ui{Pay}.
+
+\section{The Party Statement (and PDF / Excel)}
+A party's \textbf{statement} is their full account on one page. It shows, in date
+order:
+\begin{itemize}[leftmargin=1.3em,itemsep=2pt]
+  \item every \textbf{sale}, \textbf{purchase}, \textbf{receipt} and \textbf{payment};
+  \item the \textbf{payment method} shown beneath each receipt or payment;
+  \item a running \textbf{receivable} balance and a running \textbf{payable} balance, side by side;
+  \item each document's \textbf{outstanding} amount.
+\end{itemize}
+Download it as a \textbf{PDF} (to print or send on WhatsApp) or \textbf{Excel}
+(to work with the numbers). Both are produced ready-to-share.
+\shot{15}{15-party-statement.png}{A party statement with running receivable and payable balances, ready to download.}
+
+% =====================================================================
+\chapter{Your Daily Shop Routine}
+% =====================================================================
+A simple rhythm keeps your books correct with almost no effort.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\bfseries\color{brandgreendark}}l X}
+\toprule
+Morning & Sign in $\rightarrow$ glance at the dashboard $\rightarrow$ check \textbf{Low Stock} $\rightarrow$ check who still owes you. \\
+\addlinespace
+During the day & Record \textbf{every} sale and purchase as it happens; record money \textbf{received} and \textbf{paid}; adjust stock only when something is broken, lost or counted. \\
+\addlinespace
+At closing & Review today's \textbf{sales}, \textbf{cash received} and \textbf{money paid}; record the day's \textbf{expenses}; check your \textbf{Cash \& Bank} balance; look at outstanding parties. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{tipbox}
+The golden rule: \textbf{record it when it happens}. A sale entered at the moment
+of billing is a sale you never have to remember later.
+\end{tipbox}
+
+% =====================================================================
+\chapter{Common Mistakes and Fixes}
+% =====================================================================
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\bfseries\color{navy}}p{5.2cm} X}
+\toprule
+Problem & What to do \\
+\midrule
+Product not showing in billing & Make sure it is \textbf{added} and \textbf{active} in Products / Items. \\
+Wrong quantity or price on a draft & Edit the draft before you complete it. \\
+Wrong price already completed & A completed invoice cannot be edited — use a \textbf{sales return}, or correct with a new entry. \\
+Wrong party selected & On a draft, change it; if already posted, reverse with a return and re-enter. \\
+Payment not reducing a bill & Check the amount — it fills the \textbf{oldest open bills} first; a smaller amount only partly pays. \\
+``Looks like a bill already recorded'' & You are about to enter the \textbf{same} bill twice. Open the existing one, or confirm again only if it really is new. \\
+Bill reading failed & Retry the upload, or enter the bill with the normal Purchase / Sales form. \\
+Stock looks wrong & Use \textbf{Stock Adjustments} after a physical count to set it right. \\
+A report looks empty & Check the \textbf{date range} at the top of the report. \\
+Cannot download PDF / Excel & Allow pop-ups / downloads for the site in your browser, then try again. \\
+Signed out unexpectedly & Sign in again; your data is safe. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notebox}
+Completed (posted) documents are kept unchangeable on purpose — it is what keeps
+your books trustworthy. The correct way to fix them is a \textbf{return} or an
+\textbf{adjustment}, which leaves a clean trail.
+\end{notebox}
+
+If something still looks wrong, contact your Byapar support contact (see the Quick
+Reference).
+
+% =====================================================================
+\chapter{Frequently Asked Questions}
+% =====================================================================
+\begin{faqbox}{Can one party both buy from me and sell to me?}
+Yes. A party is one record that holds both sides. Byapar keeps ``owes you'' and
+``you owe'' separately and never cancels one against the other.
+\end{faqbox}
+\begin{faqbox}{Can I sell on credit?}
+Yes. Choose \ui{On credit} (or \ui{Part}) on the bill. The unpaid amount becomes
+what the customer owes you, and appears in the Credit Book.
+\end{faqbox}
+\begin{faqbox}{Can I record a part payment?}
+Yes. Enter whatever was paid in Money Received or Money Paid; it settles the
+oldest bills first, and the rest stays open.
+\end{faqbox}
+\begin{faqbox}{Can I upload a handwritten bill?}
+Yes, if bill reading is switched on for your shop. Neat handwriting reads best —
+always check the figures before you confirm.
+\end{faqbox}
+\begin{faqbox}{Can I download statements and reports?}
+Yes. Party statements and most reports download as PDF or Excel.
+\end{faqbox}
+\begin{faqbox}{Can I see what is running low?}
+Yes. The \textbf{Low Stock} page lists every item at or below its minimum level.
+\end{faqbox}
+\begin{faqbox}{Can I use Byapar without GST?}
+Yes. Leave GST off and your bills carry no tax — just the item amounts.
+\end{faqbox}
+\begin{faqbox}{What happens when I make a sale?}
+Stock goes down, an invoice is created, any unpaid amount becomes what the customer
+owes you, and the money paid is recorded.
+\end{faqbox}
+\begin{faqbox}{What happens when I record a purchase?}
+Stock goes up at its cost, and any amount you did not pay becomes what you owe the
+supplier.
+\end{faqbox}
+\begin{faqbox}{Can I correct a transaction after completing it?}
+A completed document is final. Reverse it with a \textbf{return} (sales or purchase)
+or a \textbf{stock adjustment}, then re-enter it correctly.
+\end{faqbox}
+\begin{faqbox}{What if I forget to record a payment?}
+Record it whenever you remember — the party's balance updates straight away. Enter
+the real date so the statement stays accurate.
+\end{faqbox}
+
+% =====================================================================
+\chapter{Quick Reference}
+% =====================================================================
+\section{Where things live}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\bfseries\color{navy}}l X}
+\toprule
+Make a quick bill & Overview $\rightarrow$ Quick Billing \\
+Full sale / invoices & Sales $\rightarrow$ New sale / Invoices \\
+Record a purchase & Purchase $\rightarrow$ Purchases \\
+What you owe & Purchase $\rightarrow$ Payables \\
+Add / view parties & Parties $\rightarrow$ Add Party / All Parties \\
+Who owes you & Parties $\rightarrow$ Credit Book \\
+Take / make a payment & Money $\rightarrow$ Money Received / Money Paid \\
+Spending & Money $\rightarrow$ Expenses; balances in Cash \& Bank \\
+Stock \& low stock & Stock \& Inventory $\rightarrow$ Stock Dashboard / Low Stock \\
+Scan a paper bill & Overview $\rightarrow$ Bill Import \\
+Reports \& statements & Reports (Sales, Parties, Stock, Profit \& Loss\ldots) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Daily checklist}
+\textbf{Morning:} sign in; dashboard; Low Stock; who owes you.\\
+\textbf{Through the day:} record every sale, purchase, receipt and payment.\\
+\textbf{Closing:} review sales, cash and payments; record expenses; check Cash \&
+Bank; review outstanding parties.
+
+\section{Words to know}
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{>{\bfseries\color{navy}}l X}
+\toprule
+Party & Any person or business you deal with (customer, supplier, or both). \\
+Receivable / Owes you & Money a customer still has to pay you. \\
+Payable / You owe & Money you still have to pay a supplier. \\
+Stock & How much of a product you have right now. \\
+Draft & A saved entry that changes nothing until you complete it. \\
+Completed / Posted & A final entry — stock and money have moved. \\
+Advance & Money received beyond the open bills, kept for next time. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Support}
+For help, contact your Byapar support contact. \emph{(Your shop's support email and
+phone are set by your business; if they are shown on your landing page, use those.)}
+
+\vfill
+\begin{center}
+{\color{brandgreen}\rule{0.5\linewidth}{1pt}}\\[6pt]
+{\sffamily\color{inkgray}\small Thank you for running your shop with \textbf{\color{navy}Byapar}.}
+\end{center}
+
+\end{document}
