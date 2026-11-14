@@ -1,0 +1,350 @@
+% =====================================================================
+%  Byapar — Business Owner Demo Playbook (concise, 8-12 pages)
+%  Compile with XeLaTeX (preferred) or LuaLaTeX. Standard TeX Live / Overleaf.
+%  Screenshots live in ./img/ (copied from docs/user-guide/screenshots/);
+%  a missing image renders as a tidy placeholder, so it always builds.
+% =====================================================================
+\documentclass[11pt,a4paper,openany]{article}
+
+\usepackage{fontspec}
+\usepackage[a4paper,top=2.1cm,bottom=2.0cm,left=2.0cm,right=2.0cm,headheight=16pt]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage[most]{tcolorbox}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usepackage[hidelinks]{hyperref}
+\usepackage{bookmark}
+
+\definecolor{brandgreen}{HTML}{1C7D59}
+\definecolor{brandgreendark}{HTML}{145C41}
+\definecolor{navy}{HTML}{13293D}
+\definecolor{panel}{HTML}{F2F6F4}
+\definecolor{panelborder}{HTML}{D4E3DB}
+\definecolor{amber}{HTML}{B45309}
+\definecolor{amberbg}{HTML}{FDF4E3}
+\definecolor{inkgray}{HTML}{4B5563}
+\definecolor{hairline}{HTML}{E3E8E6}
+
+\newfontfamily\rupeefont{DejaVu Sans}
+\newcommand{\rupee}{{\rupeefont \symbol{"20B9}}}
+
+\hypersetup{pdftitle={Byapar — Business Owner Demo Playbook},pdfauthor={Byapar},
+  colorlinks=true,linkcolor=brandgreendark,urlcolor=brandgreendark,bookmarksopen=true}
+
+\setlength{\parindent}{0pt}\setlength{\parskip}{5pt}
+
+\titleformat{\section}{\sffamily\bfseries\large\color{navy}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{10pt}{4pt}
+\titleformat{\subsection}{\sffamily\bfseries\normalsize\color{brandgreendark}}{}{0pt}{}
+\titlespacing*{\subsection}{0pt}{6pt}{2pt}
+
+\newcommand{\wordmark}{\begin{tikzpicture}[baseline=-0.55ex]
+  \fill[brandgreen,rounded corners=2.2pt] (0,-0.9ex) rectangle (2.3ex,1.5ex);
+  \draw[white,line width=0.5pt] (0.45ex,0.1ex)--(0.45ex,1.0ex)--(1.15ex,1.55ex)--(1.85ex,1.0ex)--(1.85ex,0.1ex)--cycle;
+  \node[anchor=west] at (2.7ex,0.3ex) {\sffamily\bfseries\color{navy}Byapar};\end{tikzpicture}}
+\pagestyle{fancy}\fancyhf{}
+\fancyhead[L]{\wordmark}\fancyhead[R]{\sffamily\footnotesize\color{inkgray}Business Owner Demo Playbook}
+\fancyfoot[C]{\sffamily\footnotesize\color{inkgray}\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{hairline}\leaders\hrule height \headrulewidth\hfill}}
+
+\newtcolorbox{say}{enhanced,breakable,colback=panel,colframe=brandgreen,boxrule=0pt,
+  leftrule=3pt,arc=3pt,left=9pt,right=9pt,top=6pt,bottom=6pt,
+  fonttitle=\sffamily\bfseries\color{brandgreendark},title={Say this}}
+\newtcolorbox{warn}{enhanced,breakable,colback=amberbg,colframe=amber,boxrule=0pt,
+  leftrule=3pt,arc=3pt,left=9pt,right=9pt,top=6pt,bottom=6pt,
+  fonttitle=\sffamily\bfseries\color{amber},title={Remember}}
+\newcommand{\ui}[1]{\colorbox{panel}{\rule[-3pt]{0pt}{11pt}\texttt{\textcolor{navy}{#1}}}}
+\newcommand{\dur}[1]{\hfill{\sffamily\footnotesize\color{brandgreen}\textbf{#1}}}
+
+% A step flow table for a part
+\newenvironment{flow}{\par\small\begin{tabularx}{\linewidth}{@{}>{\bfseries\color{navy}}p{3.4cm} X@{}}\toprule
+ Open / Click & Demonstrate \& benefit \\\midrule}{\bottomrule\end{tabularx}\par}
+
+\newcommand{\shot}[2]{\begin{center}\IfFileExists{img/#1}{\fcolorbox{hairline}{white}{\includegraphics[width=0.82\linewidth]{img/#1}}}{%
+  \begin{tcolorbox}[width=0.82\linewidth,colback=panel,colframe=panelborder,boxrule=0.8pt,arc=4pt,halign=center,valign=center,height=3.6cm]
+  {\sffamily\footnotesize\color{inkgray}screenshot: img/#1}\end{tcolorbox}}\\[2pt]{\sffamily\footnotesize\color{inkgray}#2}\end{center}}
+
+\begin{document}
+\sffamily
+
+% ---------- Cover ----------
+\thispagestyle{empty}
+\begin{tikzpicture}[remember picture,overlay]
+  \fill[brandgreen] (current page.north west) rectangle ($(current page.north east)+(0,-5.2cm)$);
+  \node[anchor=north west,white] at ($(current page.north west)+(2.0cm,-1.5cm)$)
+    {\begin{tikzpicture}\fill[white,rounded corners=4pt](0,0)rectangle(0.9,0.9);
+      \draw[brandgreen,line width=1pt](0.18,0.16)--(0.18,0.56)--(0.45,0.78)--(0.72,0.56)--(0.72,0.16)--cycle;
+      \node[anchor=west,white] at (1.15,0.45){\sffamily\bfseries\Huge Byapar};\end{tikzpicture}};
+  \node[anchor=west,white] at ($(current page.north west)+(2.05cm,-3.0cm)$){\sffamily\large Business \& Shop Management};
+\end{tikzpicture}
+\vspace*{6.0cm}
+{\sffamily\bfseries\color{navy}\fontsize{26}{30}\selectfont Business Owner\\[2pt]Demo Playbook}\\[8pt]
+{\sffamily\color{brandgreendark}\Large A 20‑minute walkthrough you can follow live}\\[14pt]
+{\sffamily\color{inkgray}\large Open this during the meeting and read down the page.\\
+Green boxes are lines to say; amber boxes are reminders to you.}
+\vfill
+{\sffamily\footnotesize\color{inkgray}Companion files: \texttt{BUSINESS\_OWNER\_WALKTHROUGH.md} (full script),
+\texttt{DEMO\_CHECKLIST.md}, \texttt{DEMO\_DATA.md}, \texttt{KNOWN\_LIMITATIONS.md}}
+\clearpage
+
+% ---------- At a glance ----------
+\section{The 20‑minute flow at a glance}
+\small
+\begin{tabularx}{\linewidth}{@{}p{0.7cm}>{\bfseries\color{navy}}p{4.3cm}X r@{}}
+\toprule
+\# & Part & Core message & Time \\\midrule
+1 & Opening & Their daily pains $\to$ one place & 2 min \\
+2 & Dashboard & The whole shop on one screen & 2 min \\
+3 & Products \& Inventory & Stock you can trust, auto‑updated & 3 min \\
+4 & Unified Parties \& Credit & One record; owes‑you vs you‑owe & 3 min \\
+5 & Quick Billing \& Sales & A bill in seconds, four jobs at once & 3 min \\
+6 & Purchases \& Money & Buying + money in/out & 2 min \\
+7 & AI Bill Import & Photograph a bill, review, confirm & 2 min \\
+8 & Reports \& Statements & No month‑end maths; PDF/Excel & 2 min \\
+9 & Closing & Recap + "what takes you the most time?" & 1 min \\
+\bottomrule
+\end{tabularx}
+
+\begin{warn}
+Open with \textbf{their problems}, not features. This demo shop runs \textbf{without
+GST}, so bills are simple. \textbf{Pre‑test AI Bill Import} the morning of — never fake a live read.
+\end{warn}
+
+% ---------- Part 1 ----------
+\section{Part 1 — Opening \dur{2 min}}
+\begin{say}
+``In your shop today, how do you track things? Most owners juggle a few registers:
+one for bills, one for \emph{udhaar}, a notebook for stock, supplier dues in their
+head. That works\ldots until a bill book gets lost, or you forget who owes you
+\rupee2,000. Byapar puts all of it in \textbf{one place} — you make a bill, and your
+stock, the customer's balance and your reports update by themselves.''
+\end{say}
+
+% ---------- Part 2 ----------
+\section{Part 2 — Dashboard \dur{2 min}}
+\begin{flow}
+\ui{Home} & The day's summary, quick shortcuts, and the grouped sidebar. \\
+Sidebar & Sales, Purchases, Stock, Parties, Money, Reports — ``grouped the way you think.'' \\
+\end{flow}
+\begin{say}
+``This is your shop's home screen — your day the moment you log in. On the left is
+everything, grouped the way you think about your shop.''
+\end{say}
+\shot{02-dashboard.png}{The Home dashboard.}
+
+% ---------- Part 3 ----------
+\section{Part 3 — Products \& Inventory \dur{3 min}}
+\begin{flow}
+\ui{Products / Items} & The catalogue, each item with a purchase and selling price. \\
+\ui{Add product} & \emph{Sunflower Oil 1L}, purchase \rupee115, selling \rupee140, min stock 10. \\
+\ui{Stock Dashboard} & Live quantity + value; goes up on buying, down on selling. \\
+\ui{Low Stock} & Items at/below their minimum — your re‑order list. \\
+\end{flow}
+\begin{say}
+``Each item has a buy price and a sell price. This `minimum stock' flags the item in
+Low Stock before you run out. And Stock Dashboard here is never counted by hand —
+selling reduces it, buying increases it, automatically.''
+\end{say}
+\begin{tcolorbox}[colback=white,colframe=panelborder,boxrule=0.8pt,arc=3pt,left=9pt,right=9pt,top=6pt,bottom=6pt,
+  fonttitle=\sffamily\bfseries\color{navy},title={Worked example},enhanced]
+\textbf{Sunflower Oil 1L} — opening stock 50. Buy 20 $\to$ \textbf{70}. Sell 5 $\to$ \textbf{65}.
+You never change the number; the purchase and the sale do.
+\end{tcolorbox}
+
+% ---------- Part 4 ----------
+\section{Part 4 — Unified Parties \& Credit \dur{3 min} \textbf{\textcolor{brandgreen}{$\star$ key}}}
+\begin{flow}
+\ui{All Parties} & One list of everyone; ``Owes you'' and ``You owe'' columns. \\
+\ui{XYZ Traders} $\to$ Statement & Running \textbf{receivable} and \textbf{payable}, kept apart. \\
+\ui{Credit Book} & Everyone who owes you, to follow up. \\
+\end{flow}
+\begin{say}
+``There are no separate customer and supplier lists — one list of \textbf{parties},
+because the same business often does both. Take \textbf{XYZ Traders}: they
+\textbf{owe you \rupee6,000} on sales, and \textbf{you owe them \rupee15,000} on
+purchases. Byapar keeps these two \textbf{separate} — it does not mix them into one
+number. You always know exactly where you stand.''
+\end{say}
+\begin{tcolorbox}[colback=white,colframe=panelborder,boxrule=0.8pt,arc=3pt,enhanced,
+  left=9pt,right=9pt,top=5pt,bottom=5pt]
+\small
+\begin{tabularx}{\linewidth}{@{}X r@{}}
+Sold \rupee8,000, received \rupee2,000 & \textbf{Owes You \rupee6,000} \\
+Bought \rupee20,000, paid \rupee5,000 & \textbf{You Owe \rupee15,000} \\
+\end{tabularx}
+\end{tcolorbox}
+\shot{15-party-statement.png}{A party statement — receivable and payable side by side, downloadable as PDF/Excel.}
+
+% ---------- Part 5 ----------
+\section{Part 5 — Quick Billing \& Sales \dur{3 min}}
+\begin{flow}
+\ui{Quick Billing} & Choose party \emph{Rahul Store}. \\
+Add items & Oil $\times$2, Soap $\times$3, Maggi $\times$5 — prices auto‑fill. \\
+Payment & \ui{Full} / \ui{Part} / \ui{On credit}, and the account it goes into. \\
+\ui{Save \& complete} & Invoice + stock out + payment, in one click. \\
+\end{flow}
+\begin{say}
+``Making a bill takes seconds. Pick the party, add the items — the price fills in by
+itself. Choose how it's paid. One press of \textbf{Save \& complete} just did four
+things: made the invoice, took the items out of stock, recorded the payment, and put
+any credit on the customer's account.''
+\end{say}
+\begin{tcolorbox}[colback=panel,colframe=panelborder,boxrule=0.6pt,arc=3pt,left=9pt,right=9pt,top=5pt,bottom=5pt]
+\small Line maths (GST off): 2$\times$140 = \rupee280, 3$\times$55 = \rupee165, 5$\times$14 = \rupee70 $\to$ \textbf{\rupee515}.
+\end{tcolorbox}
+\shot{08-quick-billing.png}{Quick Billing — party, items, payment panel, complete.}
+
+% ---------- Part 6 ----------
+\section{Part 6 — Purchases \& Money \dur{2 min}}
+\begin{flow}
+\ui{New purchase} & Supplier + items at purchase rate; complete $\to$ stock up, payable up. \\
+\ui{Money Received} & Type the amount once; it settles the oldest bills. \\
+\ui{Money Paid} & The same, for paying suppliers. \\
+\end{flow}
+\begin{say}
+``Buying is the mirror of selling — stock goes up, and what you didn't pay becomes
+what you owe, under \textbf{Payables}. Money Received applies a customer's payment to
+their oldest bills automatically; Money Paid does the same going out.''
+\end{say}
+
+% ---------- Part 7 ----------
+\section{Part 7 — AI Bill Import \dur{2 min}}
+\begin{flow}
+\ui{Bill Import} $\to$ Upload & Photograph a printed or neat handwritten bill. \\
+Review & Byapar reads party, items, quantities, rates, discount, totals. \\
+Confirm & Only then is it saved as a purchase or sale. \\
+\end{flow}
+\begin{say}
+``Instead of typing a supplier's bill, photograph it — Byapar reads it and shows you
+everything to check. You fix anything misread and confirm. \textbf{You always review
+before confirming}; nothing is saved until you say so.''
+\end{say}
+\begin{warn}
+\textbf{Test this the morning of.} If bill reading isn't enabled where you demo, show
+the upload/review screens and call it ``a capability we enable for your shop'' —
+\textbf{never fake a live read}.
+\end{warn}
+
+% ---------- Part 8 ----------
+\section{Part 8 — Reports \& Statements \dur{2 min}}
+\begin{flow}
+\ui{Reports} tabs & Sales, Purchases, Stock, \textbf{Parties}, Profit \& Loss. \\
+Date range + Download & Any period, as \textbf{PDF} or \textbf{Excel}. \\
+Party $\to$ Statement $\to$ PDF & Each party's account, ready to send. \\
+\end{flow}
+\begin{say}
+``At month‑end, no adding up by hand. Sales, purchases, stock, a single Parties view,
+and a simple Profit \& Loss — any date range, downloaded as PDF or Excel for you, your
+accountant or the bank.''
+\end{say}
+\shot{14-reports.png}{Reports — pick a tab and a date range, then print or download.}
+
+% ---------- Part 9 ----------
+\section{Part 9 — Closing \dur{1 min}}
+\begin{say}
+``So, in one place: faster billing, stock you can trust, one record per party with
+credit on both sides, your full purchase and sales history, money in and out, and
+reports you can download any time — with far less manual work.\\[4pt]
+\textbf{Which part of your current day takes the most time, or causes the most
+headache? Let's look at exactly how Byapar would handle that for you.}''
+\end{say}
+
+\clearpage
+% ---------- Positioning ----------
+\section{Positioning (your back pocket)}
+\subsection{30 seconds}
+``Byapar is a simple app to run the money side of your shop — billing, stock, who owes
+you, who you owe, and reports — all in one place, on your phone or computer.''
+\subsection{Five benefits}
+\begin{enumerate}[leftmargin=1.3em,itemsep=1pt]
+\item Bills in seconds — stock, credit and reports update automatically.
+\item One unified party record — customer and supplier, never mixed up.
+\item Receivables and payables tracked separately and clearly.
+\item Live stock with low‑stock alerts.
+\item Download‑ready reports and statements (PDF \& Excel).
+\end{enumerate}
+\subsection{Five differentiators (all real)}
+\begin{enumerate}[leftmargin=1.3em,itemsep=1pt]
+\item \textbf{Unified Parties} — one person, both sides, balances kept apart.
+\item \textbf{AI Bill Import} — photograph a bill; Byapar reads it for you to review.
+\item \textbf{Server‑calculated money} — totals and balances come from the books, always exact.
+\item \textbf{Auto payment allocation} — a receipt settles the oldest bills on its own.
+\item \textbf{One‑click Save \& complete} — a bill posts stock, invoice and payment together.
+\end{enumerate}
+
+% ---------- Q&A ----------
+\section{Likely questions — short answers}
+\small
+\begin{tabularx}{\linewidth}{@{}>{\bfseries\color{navy}}p{6.0cm}X@{}}
+\toprule
+Better than a notebook? & A notebook can't total your stock, remember credit, or make a report. Byapar does, while you just record the sale. \\
+Track credit customers? & Yes — ``On credit''/``Part'' on the bill; shows in the Credit Book. \\
+Same party buy \& sell? & Yes — one record, two balances kept separate. \\
+See what I owe? & Yes — ``You owe'' and the Payables screen (which bills are due). \\
+Track stock / auto‑update? & Yes — live stock; sales reduce it, purchases add to it. \\
+Upload handwritten bills? & Yes if reading is enabled; review before confirming. \\
+Download Excel? & Yes — reports and statements as PDF \& Excel. \\
+Multiple employees? & Yes — owner full access; staff can be limited; cashiers see only their own sales. \\
+Use without GST? & Yes — bills then carry no tax. \\
+If I enter something wrong? & Fix a draft before completing; correct a completed one with a return or adjustment. \\
+Access my data later? & Yes — saved securely; available when you sign in. \\
+Subscription / price? & Per‑business subscription — \emph{share your current plan, don't quote from memory}. \\
+No internet? & It's an online app; reconnect and carry on — data is safe on the server. \\
+\bottomrule
+\end{tabularx}
+
+\clearpage
+% ---------- Quick reference one-pager ----------
+\section{One‑page quick reference}
+\begin{tcolorbox}[colback=panel,colframe=brandgreen,boxrule=0pt,leftrule=3pt,arc=3pt,
+  left=10pt,right=10pt,top=8pt,bottom=8pt,fonttitle=\sffamily\bfseries\color{brandgreendark},
+  title={The flow (20 min)}]
+\small 1 Opening (their pains) $\cdot$ 2 Dashboard $\cdot$ 3 Products \& Stock $\cdot$
+4 \textbf{Parties \& Credit} $\cdot$ 5 \textbf{Quick Billing} $\cdot$ 6 Purchases \& Money $\cdot$
+7 Bill Import $\cdot$ 8 Reports $\cdot$ 9 Close with the question.
+\end{tcolorbox}
+
+\subsection{Numbers to know by heart}
+\small
+\begin{tabularx}{\linewidth}{@{}X X@{}}
+\toprule
+XYZ Traders & \textbf{Owes you \rupee6,000} \,/\, \textbf{You owe \rupee15,000} (separate) \\
+Rahul Store bill & 2$\times$140 + 3$\times$55 + 5$\times$14 = \textbf{\rupee515} \\
+Oil stock & 50, buy 20 $\to$ 70, sell 5 $\to$ 65 \\
+Advance & receive \rupee600 on a \rupee515 bill $\to$ \rupee85 kept as advance \\
+\bottomrule
+\end{tabularx}
+
+\subsection{Where things live}
+\small
+\begin{tabularx}{\linewidth}{@{}>{\bfseries\color{navy}}p{4.2cm}X@{}}
+\toprule
+Quick bill & Overview $>$ Quick Billing \\
+Products / stock & Stock \& Inventory $>$ Products, Stock Dashboard, Low Stock \\
+Parties / credit & Parties $>$ All Parties, Credit Book; party $>$ Statement \\
+Purchase / owed & Purchase $>$ Purchases, Payables \\
+Money in / out & Money $>$ Money Received, Money Paid \\
+Scan a bill & Overview $>$ Bill Import \\
+Reports & Reports $>$ Sales, Stock, Parties, Profit \& Loss \\
+\bottomrule
+\end{tabularx}
+
+\vspace{6pt}
+\begin{warn}
+Demo only what you tested today. Unsure? ``Let me confirm and come back to you.''
+Keep real customer data and credentials off the screen.
+\end{warn}
+
+\vfill
+\begin{center}{\color{brandgreen}\rule{0.4\linewidth}{1pt}}\\[4pt]
+{\sffamily\color{inkgray}\small Byapar — one place to run your shop.}\end{center}
+
+\end{document}

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ChevronRight, Download, FileSpreadsheet, Loader2 } from "lucide-react";
+import { ArrowLeft, ChevronRight, Download, FileSpreadsheet, Loader2, Printer, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   ApiError,
@@ -16,7 +16,6 @@ import {
 import { PageHeader } from "@/components/shared/page-header";
 import { ErrorState, LoadingState, NotFoundState } from "@/components/shared/states";
 import { Money } from "@/components/shared/money";
-import { PrintActions } from "@/components/shared/print-actions";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -75,6 +74,7 @@ export function PartyStatementPage({ id }: { id: string }) {
   const [showItems, setShowItems] = React.useState(true);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [downloading, setDownloading] = React.useState<"pdf" | "xlsx" | null>(null);
+  const [printing, setPrinting] = React.useState(false);
 
   const params: StatementParams = {
     fromDate: range.fromDate,
@@ -109,6 +109,54 @@ export function PartyStatementPage({ id }: { id: string }) {
       });
     } finally {
       setDownloading(null);
+    }
+  };
+
+  // Print the SAME PDF the PDF button makes - load it in a hidden frame and
+  // print THAT, so paper matches the download exactly, not the web page.
+  const printPdf = async () => {
+    setPrinting(true);
+    try {
+      const blob = await partiesApi.statementFile(id, "pdf", params);
+      const url = URL.createObjectURL(blob);
+      const frame = document.createElement("iframe");
+      Object.assign(frame.style, { position: "fixed", right: "0", bottom: "0", width: "0", height: "0", border: "0" });
+      frame.src = url;
+      frame.onload = () => {
+        try {
+          frame.contentWindow?.focus();
+          frame.contentWindow?.print();
+        } catch {
+          window.open(url, "_blank"); // fallback: show the PDF to print by hand
+        }
+        // Leave the frame long enough for the print dialog, then clean up.
+        window.setTimeout(() => {
+          frame.remove();
+          URL.revokeObjectURL(url);
+        }, 60000);
+      };
+      document.body.appendChild(frame);
+    } catch (err) {
+      toast.error("Could not open the statement to print", {
+        description: err instanceof ApiError ? err.message : undefined,
+      });
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  // Share the page link (phone share sheet, else copy).
+  const sharePage = async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `Statement - ${query.data?.party.name ?? "Party"}`, url });
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied");
+    } catch {
+      /* the user dismissed the share sheet */
     }
   };
 
@@ -176,7 +224,20 @@ export function PartyStatementPage({ id }: { id: string }) {
               {downloading === "xlsx" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
               Excel
             </Button>
-            <PrintActions title={`Statement - ${party.name}`} />
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={printPdf}
+              disabled={printing}
+            >
+              {printing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+              Print
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={sharePage}>
+              <Share2 className="h-4 w-4" />
+              Share
+            </Button>
           </div>
         }
       />

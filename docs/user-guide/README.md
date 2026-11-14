@@ -10,9 +10,10 @@ docs/user-guide/
 └── screenshots/                # real app screenshots + MANIFEST.md
 ```
 
-> **Why there is no PDF in this folder yet:** the machine this was written on had
-> no LaTeX engine installed, so the PDF could not be compiled here. Building it is
-> a one‑step job on Overleaf or any local LaTeX install — see below.
+> **Status:** all **15 screenshots are captured** from the real running app (demo
+> shop, Shop Owner account) and are in `screenshots/`. The only thing left is to
+> **compile the PDF** — the machine this was prepared on has no LaTeX engine, so
+> the compile happens on Overleaf or a local LaTeX install (one step, below).
 
 ---
 
@@ -45,19 +46,22 @@ cover banner; the second pass settles the page numbers and links.
 
 ---
 
-## Adding the screenshots
+## Screenshots
 
-The guide is written to work **with or without** screenshots:
+All **15 screenshots are already included** in `screenshots/`, captured from the
+real running application (the seeded demo shop, signed in as the Shop Owner) at
+1440×900 retina, with no browser chrome and demo data only. They are wired into
+the guide and render automatically when you compile.
 
-- Drop a PNG into `screenshots/` using the **exact filename** the guide expects
-  (see `screenshots/MANIFEST.md`), and it appears automatically on recompile.
-- Any shot you have **not** added yet renders as a tidy dashed placeholder box
-  that says *“place `screenshots/NN-name.png` here”* — so the document always
-  compiles and looks finished.
+The guide is also resilient: if any screenshot file is ever removed, that spot
+renders as a tidy dashed placeholder box instead of breaking the build. To
+re-capture or replace one, just overwrite the PNG of the same name (see
+`screenshots/MANIFEST.md` for what each shows).
 
-Capture the shots from the real app, crop the browser chrome, and never show
-passwords, tokens or real customer phone numbers. See `screenshots/MANIFEST.md`
-for the full list and what each one should show.
+One note: figure 13 (**Bill Import**) shows the real upload/start screen. The
+live “review a read bill” screen needs the AI reading service (`LLAMA_API_KEY`),
+which is not enabled on the local instance used for capture — so it was not
+staged rather than faked.
 
 ---
 
